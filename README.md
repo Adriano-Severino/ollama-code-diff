@@ -1,4 +1,4 @@
-🤖 Ollama Code Diff
+##🤖 Ollama Code Diff
 =====================
 Uma extensão moderna do Visual Studio Code que integra modelos de IA locais via Ollama para geração, edição e análise de código com interface visual intuitiva.
 ✨ Funcionalidades Principais
@@ -23,7 +23,7 @@ Suporte a modelos locais - privacidade total
 Configuração dinâmica de contexto e tokens
 Múltiplos modelos com troca instantânea
 Performance otimizada para diferentes tamanhos de arquivo
-###🚀 Instalação
+### 🚀 Instalação
 ------------------
 Pré-requisitos:
 * Visual Studio Code 1.85.0 ou superior
@@ -31,13 +31,13 @@ Pré-requisitos:
 * Node.js para desenvolvimento (se compilando do código)
 ### Windows
 ### Baixar de <https://ollama.ai/download>
-## Modelos recomendados para código
+### Modelos recomendados para código
 ollama pull codellama:7b-instruct-q5_K_M
 ollama pull qwen2.5-coder:7b
 ollama pull qwen2.5-coder:1.5b-base
-## Verificar instalação
+### Verificar instalação
 ollama list
-### 📱 Como Usar
+## 📱 Como Usar
 ### 🎯 Acesso via Botão (Método Principal)
 Localize o botão 🤖 Ollama na barra de status (canto inferior direito)
 Clique no botão para abrir o menu de opções
@@ -49,8 +49,10 @@ Analisar Projeto - Análise completa do workspace
 Múltiplos Arquivos - Comparar arquivos específicos
 Configurações - Alterar modelo e parâmetros
 ⌨️ Atalhos de Teclado (Opcional)
+
 ![alt text](image-2.png)
-💡 Exemplos de Uso
+
+### 💡 Exemplos de Uso
 --------------------
 ### 🔨 Gerar Código
 ```
@@ -59,7 +61,7 @@ Configurações - Alterar modelo e parâmetros
 # 3. Prompt: "Função para calcular fibonacci recursivo"
 # 4. Revisar diff e aplicar
 ```
-###✏️ Editar Código
+### ✏️ Editar Código
 ------------------
 ```javascript
 // 1. Selecione o código
@@ -70,7 +72,7 @@ function oldFunction(data) {
 // 3. Instrução: "Adicionar validação de tipos"
 // 4. Ver diff com melhorias
 ```
-###🔍 Analisar Arquivo
+### 🔍 Analisar Arquivo
 -------------------
 ```
 // 1. Abra arquivo para análise
@@ -78,7 +80,7 @@ function oldFunction(data) {
 // 3. Prompt: "Encontrar possíveis bugs"
 // 4. Resultado em aba Markdown lateral
 ```
-###⚙️ Configurações
+### ⚙️ Configurações
 ----------------
 🎨 Via Interface (Recomendado)
 Botão Ollama → Configurações → Modelo Ollama
@@ -88,16 +90,19 @@ Selecionar modelo da lista com ícones:
 🦏 Modelos grandes (5-10GB) - Alta qualidade
 🐘 Modelos muito grandes (10GB+) - Máxima qualidade
 📋 Via Settings do VS Code
+
 ```bash
 # Abrir configurações
 Ctrl+, → pesquisar "ollama-code-diff"
 ```
-###🔧 Configurações Disponíveis
+
+### 🔧 Configurações Disponíveis
 ------------------------------
 ![alt text](image-1.png)
-###📊 Configurações por Tipo de Uso'
+
+### 📊 Configurações por Tipo de Uso'
 -----------------------------------
-###⚡ Performance (Modelos Pequenos)
+### ⚡ Performance (Modelos Pequenos)
 ```json
 {
   "ollama-code-diff.modelName": "qwen2.5-coder:1.5b-base",
@@ -105,7 +110,7 @@ Ctrl+, → pesquisar "ollama-code-diff"
   "ollama-code-diff.maxTokens": 4096
 }
 ```
-###🎯 Qualidade (Modelos Grandes)
+### 🎯 Qualidade (Modelos Grandes)
 ```json
 {
   "ollama-code-diff.modelName": "qwen2.5-coder:7b",
@@ -113,7 +118,7 @@ Ctrl+, → pesquisar "ollama-code-diff"
   "ollama-code-diff.maxTokens": 8192
 }
 ```
-###🏗️ Arquivos Grandes
+### 🏗️ Arquivos Grandes
 ```json
 {
   "ollama-code-diff.contextSize": 65536,
@@ -121,10 +126,12 @@ Ctrl+, → pesquisar "ollama-code-diff"
   "ollama-code-diff.maxTokens": 16384
 }
 ```
+
 ![alt text](image.png)
-###🔧 Troubleshooting
+
+### 🔧 Troubleshooting
 -------------------
-❌ Botão não aparece na barra de status
+### ❌ Botão não aparece na barra de status
 ```bash
 # 1. Verificar se extensão está ativa
 Ctrl+Shift+P → "Developer: Show Running Extensions"
@@ -133,7 +140,7 @@ View → Appearance → Status Bar
 # 3. Recompilar extensão
 npm run compile
 ```
-❌ Erro "Ollama não está respondendo"
+### ❌ Erro "Ollama não está respondendo"
 ```bash
 # 1. Verificar se Ollama está rodando
 ollama serve
@@ -142,7 +149,7 @@ curl http://localhost:11434/api/tags
 # 3. Verificar modelos
 ollama list
 ```
-❌ Atalhos não funcionam
+### ❌ Atalhos não funcionam
 ```bash
 # 1. Verificar conflitos
 Ctrl+K Ctrl+S → pesquisar atalho
@@ -152,7 +159,7 @@ Ctrl+K Ctrl+S → pesquisar atalho
 }
 # 3. Usar botão visual como alternativa
 ```
-###❌ Análise de arquivo muito lenta
+### ❌ Análise de arquivo muito lenta
 ```bash
 # 1. Reduzir tamanho do contexto
 "ollama-code-diff.contextSize": 16384
@@ -161,9 +168,9 @@ Ctrl+K Ctrl+S → pesquisar atalho
 # 3. Reduzir chunk size
 "ollama-code-diff.chunkSize": 15000
 ```
-###📈 Roadmap
+### 📈 Roadmap
 ----------
-###🔜 Próximas Funcionalidades
+### 🔜 Próximas Funcionalidades
 Chat integrado na sidebar
 
 Histórico de interações
@@ -178,9 +185,9 @@ Integração com Git para análise de commits
 
 Exportação de análises em PDF/HTML
 
-###🤝 Contribuição
+### 🤝 Contribuição
 --------------
-###📝 Como Contribuir
+### 📝 Como Contribuir
 Fork o repositório
 
 Clone sua fork localmente
@@ -188,9 +195,9 @@ Crie branch para sua feature (git checkout -b feature/nova-funcionalidade)
 Commit suas mudanças (git commit -am 'Adiciona nova funcionalidade')
 Push para branch (git push origin feature/nova-funcionalidade)
 Abra Pull Request
-###🐛 Reportar Bugs
+### 🐛 Reportar Bugs
 Use as GitHub Issues para reportar bugs ou sugerir melhorias
-###💡 Sugestões
+### 💡 Sugestões
 Ideias para novas funcionalidades são sempre bem-vindas! Abra uma issue com tag enhancement.
 ## Licença
 Este projeto está licenciado sob a Licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
