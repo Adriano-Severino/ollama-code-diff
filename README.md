@@ -80,16 +80,19 @@ function oldFunction(data) {
 // 3. Prompt: "Encontrar possíveis bugs"
 // 4. Resultado em aba Markdown lateral
 ```
-### ⚙️ Configurações
+## ⚙️ Configurações
 ----------------
-🎨 Via Interface (Recomendado)
+### 🎨 Via Interface (Recomendado)
+
 Botão Ollama → Configurações → Modelo Ollama
+
 Selecionar modelo da lista com ícones:
-🐭 Modelos pequenos (< 1GB) - Rápidos
-🐃 Modelos médios (1-5GB) - Balanceados
-🦏 Modelos grandes (5-10GB) - Alta qualidade
-🐘 Modelos muito grandes (10GB+) - Máxima qualidade
-📋 Via Settings do VS Code
+
+ 🐭 Modelos pequenos (< 1GB) - Rápidos
+ 🐃 Modelos médios (1-5GB) - Balanceados
+ 🦏 Modelos grandes (5-10GB) - Alta qualidade
+ 🐘 Modelos muito grandes (10GB+) - Máxima qualidade
+ 📋 Via Settings do VS Code
 
 ```bash
 # Abrir configurações
