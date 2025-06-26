@@ -211,6 +211,7 @@ Este projeto está licenciado sob a Licença MIT. Veja o arquivo [LICENSE](LICEN
 Criado por **Adriano Severino** como parte do desenvolvimento de uma linguagem de programação educacional em português brasileiro.
 
 MIT License
+
 Copyright (c) 2023 Adriano Severino
 
 Agradecimentos
