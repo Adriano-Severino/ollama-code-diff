@@ -1,4 +1,4 @@
-##🤖 Ollama Code Diff
+## 🤖 Ollama Code Diff
 =====================
 Uma extensão moderna do Visual Studio Code que integra modelos de IA locais via Ollama para geração, edição e análise de código com interface visual intuitiva.
 ✨ Funcionalidades Principais
