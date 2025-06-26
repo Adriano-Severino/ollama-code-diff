@@ -174,7 +174,7 @@ Ctrl+K Ctrl+S → pesquisar atalho
 # 3. Reduzir chunk size
 "ollama-code-diff.chunkSize": 15000
 ```
-### 📈 Roadmap
+## 📈 Roadmap
 ----------
 ### 🔜 Próximas Funcionalidades
 Chat integrado na sidebar
@@ -205,12 +205,14 @@ Abra Pull Request
 Use as GitHub Issues para reportar bugs ou sugerir melhorias
 ### 💡 Sugestões
 Ideias para novas funcionalidades são sempre bem-vindas! Abra uma issue com tag enhancement.
-## Licença
+## 📄 Licença
 Este projeto está licenciado sob a Licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
 ## 👨‍💻 Desenvolvedor
 Criado por **Adriano Severino** como parte do desenvolvimento de uma linguagem de programação educacional em português brasileiro.
-## 📄 Licença
+
 MIT License
+Copyright (c) 2023 Adriano Severino
+
 Agradecimentos
 Ollama - Pela excelente ferramenta de IA local
 VS Code Team - Pela extensível API de extensões
