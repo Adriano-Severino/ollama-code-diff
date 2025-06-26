@@ -3,7 +3,8 @@
 =====================
 
 Uma extensão moderna do Visual Studio Code que integra modelos de IA locais via Ollama para geração, edição e análise de código com interface visual intuitiva.
-✨ Funcionalidades Principais
+### ✨ Funcionalidades Principais
+
 ------------------------------
 ### 🎯 Interface Visual Única
 Botão na barra de status para acesso rápido
