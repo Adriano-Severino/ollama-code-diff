@@ -1,13 +1,14 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     margin: 0;
-    padding: 10px;
+    padding: 0; /* Removido padding do body */
     display: flex;
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
     background-color: var(--vscode-editor-background);
     color: var(--vscode-editor-foreground);
+    box-sizing: border-box; /* Adicionado para melhor manipulação do box model */
 }
 
 #chat-container {
@@ -15,6 +16,8 @@ body {
     flex-direction: column;
     height: 100%;
     width: 100%;
+    padding: 10px; /* Padding movido para o container */
+    box-sizing: border-box; /* Adicionado para melhor manipulação do box model */
 }
 
 #messages {
@@ -51,8 +54,14 @@ body {
     border-bottom-left-radius: 5px;
 }
 
+.input-area {
+    display: flex;
+    align-items: center; /* Alinha verticalmente input e botão */
+    /* margin-top removido, o padding do container já dá o espaçamento */
+}
+
 #chat-input {
-    width: calc(100% - 70px);
+    flex-grow: 1; /* Permite que o input ocupe o espaço disponível */
     padding: 8px;
     border: 1px solid var(--vscode-input-border);
     border-radius: 5px;
@@ -76,9 +85,4 @@ body {
 
 #send-button:hover {
     background-color: var(--vscode-button-hoverBackground);
-}
-
-.input-area {
-    display: flex;
-    margin-top: 10px;
 }
