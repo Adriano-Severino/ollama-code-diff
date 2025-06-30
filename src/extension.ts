@@ -1,9 +1,82 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { OllamaService } from './ollama';
 import { DiffManager } from './diffManager';
 
+class ChatViewProvider implements vscode.WebviewViewProvider {
+    public static readonly viewId = 'ollama-code-diff.chatView';
+
+    private _view?: vscode.WebviewView;
+    private _ollamaService: OllamaService;
+    private _chatHistory: Array<{ role: string, content: string }> = [];
+
+    constructor(private readonly _extensionUri: vscode.Uri, ollamaService: OllamaService) {
+        this._ollamaService = ollamaService;
+    }
+
+    public resolveWebviewView(
+        webviewView: vscode.WebviewView,
+        context: vscode.WebviewViewResolveContext,
+        _token: vscode.CancellationToken,
+    ) {
+        this._view = webviewView;
+
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [this._extensionUri]
+        };
+
+        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+        webviewView.webview.onDidReceiveMessage(async message => {
+            switch (message.command) {
+                case 'sendMessage':
+                    const userMessage = message.text;
+                    this._chatHistory.push({ role: 'user', content: userMessage });
+                    webviewView.webview.postMessage({ type: 'addMessage', sender: 'user', text: userMessage });
+
+                    try {
+                        webviewView.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Digitando...' });
+                        const ollamaResponse = await this._ollamaService.chatWithOllama(userMessage, this._chatHistory);
+                        this._chatHistory.push({ role: 'assistant', content: ollamaResponse });
+                        webviewView.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: ollamaResponse });
+                    } catch (error) {
+                        const errorMessage = `Erro: ${error instanceof Error ? error.message : String(error)}`;
+                        webviewView.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
+                        vscode.window.showErrorMessage(`Erro no chat: ${errorMessage}`);
+                    }
+                    break;
+            }
+        });
+    }
+
+    private _getHtmlForWebview(webview: vscode.Webview) {
+        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'chat.css'));
+        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'chat.js'));
+
+        return `<!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <link href="${styleUri}" rel="stylesheet">
+                <title>Ollama Chat</title>
+            </head>
+            <body>
+                <div id="chat-container">
+                    <div id="messages"></div>
+                    <input type="text" id="chat-input" placeholder="Digite sua mensagem...">
+                    <button id="send-button">Enviar</button>
+                </div>
+                <script src="${scriptUri}"></script>
+            </body>
+            </html>`;
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Ollama Code Diff extension ativada!');
+    console.log('Ollama Code Diff extension ativada! (Versão com diagnóstico)');
 
     const ollamaService = new OllamaService();
     const diffManager = new DiffManager();
@@ -74,11 +147,14 @@ export function activate(context: vscode.ExtensionContext) {
         analyzeFileCommand,
         analyzeProjectCommand,
         analyzeMultipleFilesCommand,
-        showDiffCommand
+        showDiffCommand,
+        vscode.window.registerWebviewViewProvider(
+            ChatViewProvider.viewId,
+            new ChatViewProvider(context.extensionUri, ollamaService)
+        )
     );
 }
 
-// NOVA FUNÇÃO: Menu principal do Ollama
 async function showOllamaMenu(ollamaService: OllamaService, diffManager: DiffManager) {
     const editor = vscode.window.activeTextEditor;
     const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;

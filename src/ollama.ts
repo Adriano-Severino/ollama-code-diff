@@ -498,6 +498,33 @@ private formatSize(bytes: number): string {
         return filteredLines.join('\n').trim();
     }
 
+    async chatWithOllama(message: string, history: Array<{ role: string, content: string }> = []): Promise<string> {
+        const config = vscode.workspace.getConfiguration('ollama-code-diff');
+        const model = config.get<string>('modelName', 'codellama:7b-instruct-q5_K_M');
+        const contextSize = config.get<number>('contextSize', 32768);
+        const maxTokens = config.get<number>('maxTokens', 8192);
+
+        const messages = [...history, { role: 'user', content: message }];
+
+        try {
+            const response = await this.ollama.chat({
+                model: model,
+                messages: messages,
+                options: {
+                    temperature: 0.7,
+                    top_p: 0.9,
+                    num_predict: maxTokens,
+                    num_ctx: contextSize,
+                    repeat_penalty: 1.1
+                }
+            });
+            return response.message.content;
+        } catch (error) {
+            console.error('Erro ao conversar com Ollama:', error);
+            throw new Error(`Falha na comunicação com Ollama: ${error}`);
+        }
+    }
+
     async testConnection(): Promise<boolean> {
         try {
             await this.ollama.list();

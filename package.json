@@ -19,7 +19,8 @@
     "onCommand:ollama-code-diff.analyzeProject",
     "onCommand:ollama-code-diff.analyzeMultipleFiles",
     "onCommand:ollama-code-diff.showDiff",
-    "onCommand:ollama-code-diff.showMenu"
+    "onCommand:ollama-code-diff.showMenu",
+    "onView:ollama-code-diff.chatView"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -85,6 +86,24 @@
         "key": "ctrl+alt+o"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ollama-code-diff-views",
+          "title": "Ollama Code Diff",
+          "icon": "resources/ollama-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ollama-code-diff-views": [
+        {
+          "id": "ollama-code-diff.chatView",
+          "name": "Ollama Chat",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
     "configuration": {
       "title": "Ollama Code Diff",
       "properties": {
@@ -117,7 +136,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm install && npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./"
   },
