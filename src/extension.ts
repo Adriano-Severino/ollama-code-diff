@@ -12,6 +12,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private _chatHistory: Array<{ role: string, content: string }> = [];
 
     constructor(private readonly _extensionUri: vscode.Uri, ollamaService: OllamaService) {
+        console.log('ChatViewProvider: Construtor chamado.');
         this._ollamaService = ollamaService;
     }
 
@@ -20,6 +21,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
+        console.log('ChatViewProvider: resolveWebviewView chamado.');
         this._view = webviewView;
 
         webviewView.webview.options = {
@@ -27,9 +29,19 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [this._extensionUri]
         };
 
-        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+        // Adicionar listeners para depuração
+        webviewView.onDidDispose(() => console.log('ChatViewProvider: WebviewView descartado.'));
+        webviewView.onDidChangeVisibility(() => console.log(`ChatViewProvider: Visibilidade alterada para ${webviewView.visible}`));
+
+        try {
+            webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+            console.log('ChatViewProvider: HTML do webview definido.');
+        } catch (e) {
+            console.error('ChatViewProvider: Erro ao definir HTML do webview:', e);
+        }
 
         webviewView.webview.onDidReceiveMessage(async message => {
+            console.log(`ChatViewProvider: Mensagem recebida do webview: ${message.command}`);
             switch (message.command) {
                 case 'sendMessage':
                     const userMessage = message.text;
@@ -49,6 +61,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                     break;
             }
         });
+        console.log('ChatViewProvider: onDidReceiveMessage configurado.');
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {
@@ -60,14 +73,17 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};">
                 <link href="${styleUri}" rel="stylesheet">
                 <title>Ollama Chat</title>
             </head>
             <body>
                 <div id="chat-container">
                     <div id="messages"></div>
-                    <input type="text" id="chat-input" placeholder="Digite sua mensagem...">
-                    <button id="send-button">Enviar</button>
+                    <div class="input-area">
+                        <input type="text" id="chat-input" placeholder="Digite sua mensagem...">
+                        <button id="send-button">Enviar</button>
+                    </div>
                 </div>
                 <script src="${scriptUri}"></script>
             </body>
@@ -139,6 +155,8 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
 
+    console.log('Registrando WebviewViewProvider...');
+    console.log('Registrando WebviewViewProvider...');
     context.subscriptions.push(
         statusBarButton,
         showMenuCommand,
@@ -153,6 +171,8 @@ export function activate(context: vscode.ExtensionContext) {
             new ChatViewProvider(context.extensionUri, ollamaService)
         )
     );
+    console.log('WebviewViewProvider registrado.');
+    console.log('WebviewViewProvider registrado.');
 }
 
 async function showOllamaMenu(ollamaService: OllamaService, diffManager: DiffManager) {

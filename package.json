@@ -99,6 +99,7 @@
       "ollama-code-diff-views": [
         {
           "id": "ollama-code-diff.chatView",
+          "type": "webview",
           "name": "Ollama Chat",
           "icon": "$(comment-discussion)"
         }

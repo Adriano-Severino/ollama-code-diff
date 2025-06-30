@@ -1,15 +1,11 @@
 # Arquivos e pastas a serem ignorados ao empacotar a extensão VS Code
 
 # Diretórios de build e temporários
-out/          # Exclui a pasta de saída (arquivos .js e .map)
-!out/**/*.js  # Inclui apenas os arquivos JavaScript compilados da pasta 'out'
-*.map         # Exclui todos os arquivos de mapa de origem
+# A pasta 'out' é necessária, mas seus arquivos .map não
+out/**/*.map
 
 # Arquivos fonte (TypeScript) - não necessários na extensão final
 src/
-
-# Dependências do Node.js
-
 
 # Arquivos de controle de versão
 .git/
@@ -22,3 +18,6 @@ src/
 npm-debug.log*
 yarn.lock
 package-lock.json
+
+# Excluir o próprio .vsix
+*.vsix
