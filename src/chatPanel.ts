@@ -201,7 +201,9 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Gerando código...' });
             const fullPrompt = this.buildGeneratePrompt(prompt, editor.document.languageId, this.getEditorContext(editor));
             const generatedCode = await this._ollamaService.generateCode(fullPrompt);
-            await this._applyCodeChanges(generatedCode);
+            // Remove Markdown code block delimiters
+            const cleanedCode = generatedCode.replace(/```[a-zA-Z]*\n([\s\S]*?)\n```/, '$1').trim();
+            await this._applyCodeChanges(cleanedCode);
             return `Código gerado e aplicado no editor.`;
         } catch (error) {
             return `Erro ao gerar código: ${error instanceof Error ? error.message : String(error)}`;
@@ -220,7 +222,9 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Editando código...' });
             const fullPrompt = this.buildEditPrompt(selectedCode, instruction, editor.document.languageId);
             const editedCode = await this._ollamaService.generateCode(fullPrompt);
-            await this._applyCodeChanges(editedCode, selection.start.line, selection.start.character, selection.end.line, selection.end.character);
+            // Remove Markdown code block delimiters
+            const cleanedCode = editedCode.replace(/```[a-zA-Z]*\n([\s\S]*?)\n```/, '$1').trim();
+            await this._applyCodeChanges(cleanedCode, selection.start.line, selection.start.character, selection.end.line, selection.end.character);
             return `Código editado e aplicado no editor.`;
         } catch (error) {
             return `Erro ao editar código: ${error instanceof Error ? error.message : String(error)}`;
