@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path'; // Import path
+import { exec } from 'child_process'; // Import exec
 import { OllamaService } from './ollama';
 import { DiffManager } from './diffManager';
 
@@ -67,10 +69,10 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             this._view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Digitando...' });
             const ollamaResponse = await this._ollamaService.chatWithOllama(userMessage, this._chatHistory);
             this._chatHistory.push({ role: 'assistant', content: ollamaResponse });
-            this._view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: ollamaResponse });
+            this._view?.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: ollamaResponse });
         } catch (error) {
             const errorMessage = `Erro: ${error instanceof Error ? error.message : String(error)}`;
-            this._view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
+            this._view?.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
             vscode.window.showErrorMessage(`Erro no chat: ${errorMessage}`);
         }
     }
@@ -107,6 +109,19 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             Uso: /analyze_file <caminho_do_arquivo> <instrucao_de_analise>
             Exemplo: /analyze_file src/ollama.ts Encontre possíveis bugs de performance.
 
+        7.  **list_files**: Lista os arquivos em um diretório.
+            Uso: /list_files <caminho_do_diretorio>
+            Exemplo: /list_files src
+
+        8.  **execute_vscode_command**: Executa um comando interno do VS Code.
+            Uso: /execute_vscode_command <nome_do_comando> <...args>
+            Exemplo: /execute_vscode_command editor.action.formatDocument
+
+        9.  **apply_code_changes**: Aplica alterações de código diretamente no editor ativo.
+            Uso: /apply_code_changes <novo_codigo> [startLine] [startCharacter] [endLine] [endCharacter]
+            Exemplo: /apply_code_changes "console.log('Hello');" 0 0 0 0 (para inserir no início)
+            Exemplo: /apply_code_changes "novaFuncao();" 5 0 5 10 (para substituir a linha 5, caracteres 0-10)
+
         Seu objetivo é responder à solicitação do usuário usando as ferramentas disponíveis. Responda SEMPRE no formato JSON, especificando a ferramenta a ser usada e seus argumentos. Se nenhuma ferramenta for apropriada, responda com uma mensagem de texto simples.
 
         Formato JSON esperado para ferramentas:
@@ -124,11 +139,17 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         try {
             const ollamaResponse = await this._ollamaService.chatWithOllama(agentPrompt, this._chatHistory);
             this._chatHistory.push({ role: 'assistant', content: ollamaResponse });
+            console.log('Ollama Raw Response:', ollamaResponse); // Existing log
 
             try {
+                console.log('Attempting to parse Ollama response...');
                 const parsedResponse = JSON.parse(ollamaResponse);
+                console.log('Ollama Parsed Response:', parsedResponse); // Existing log
+                console.log('Attempting to execute tool...');
                 agentResponse = await this._executeTool(parsedResponse.tool, parsedResponse.args);
+                console.log('Tool execution completed.');
             } catch (jsonError) {
+                console.error('Error parsing JSON or executing tool:', jsonError); // Log the error
                 agentResponse = ollamaResponse; // Treat as a direct text response
             }
         } catch (error) {
@@ -140,7 +161,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
     private async _executeTool(tool: string, args: any): Promise<string> {
         switch (tool) {
             case 'run':
-                return this._runCommand(args.command);
+                return await this._runCommand(args.command);
             case 'read':
                 return this._readFile(args.filePath);
             case 'write':
@@ -151,27 +172,44 @@ export class ChatPanel implements vscode.WebviewViewProvider {
                 return this._editCode(args.instruction);
             case 'analyze_file':
                 return this._analyzeFile(args.filePath, args.instruction);
+            case 'list_files':
+                return this._listFiles(args.directoryPath);
+            case 'execute_vscode_command':
+                return this._executeVscodeCommand(args.command, args.args);
+            case 'apply_code_changes':
+                return this._applyCodeChanges(args.newCode, args.startLine, args.startCharacter, args.endLine, args.endCharacter);
             default:
+                console.error(`Ferramenta desconhecida: ${tool}.`); // Add this line
                 return `Ferramenta desconhecida: ${tool}.`;
         }
     }
 
-    private _runCommand(command: string): string {
-        if (!command) return "Por favor, forneça um comando para executar.";
-        try {
-            const terminal = vscode.window.createTerminal({ name: "Ollama Agent" });
-            terminal.show();
-            terminal.sendText(command);
-            return `Comando \`${command}\` enviado para o terminal.`;
-        } catch (error) {
-            return `Erro ao executar comando: ${error instanceof Error ? error.message : String(error)}`;
-        }
+    private _runCommand(command: string): Promise<string> {
+        if (!command) return Promise.resolve("Por favor, forneça um comando para executar.");
+
+        return new Promise((resolve) => {
+            exec(command, (error, stdout, stderr) => {
+                if (error) {
+                    resolve(`Erro ao executar comando: ${error.message}`);
+                    return;
+                }
+                if (stderr) {
+                    resolve(`Stderr: ${stderr}`);
+                    return;
+                }
+                resolve(`Stdout: ${stdout}`);
+            });
+        });
     }
 
     private async _readFile(filePath: string): Promise<string> {
         if (!filePath) return "Por favor, forneça um caminho de arquivo para ler.";
+        if (!vscode.workspace.workspaceFolders) return "Nenhum workspace aberto.";
+
+        const absolutePath = path.resolve(vscode.workspace.workspaceFolders[0].uri.fsPath, filePath);
+
         try {
-            const fileContent = await fs.promises.readFile(filePath, 'utf8');
+            const fileContent = await fs.promises.readFile(absolutePath, 'utf8');
             return `Conteúdo de ${filePath}:\n\`\`\`\n${fileContent}\n\`\`\``;
         } catch (error) {
             return `Erro ao ler arquivo ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
@@ -182,8 +220,12 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         if (!filePath || content === undefined) {
             return "Uso: /write <caminho_do_arquivo> <conteúdo>.";
         }
+        if (!vscode.workspace.workspaceFolders) return "Nenhum workspace aberto.";
+
+        const absolutePath = path.resolve(vscode.workspace.workspaceFolders[0].uri.fsPath, filePath);
+
         try {
-            await fs.promises.writeFile(filePath, content, 'utf8');
+            await fs.promises.writeFile(absolutePath, content, 'utf8');
             return `Conteúdo escrito em ${filePath}.`;
         } catch (error) {
             return `Erro ao escrever no arquivo ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
@@ -199,8 +241,8 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Gerando código...' });
             const fullPrompt = this.buildGeneratePrompt(prompt, editor.document.languageId, this.getEditorContext(editor));
             const generatedCode = await this._ollamaService.generateCode(fullPrompt);
-            await this._diffManager.showCodeDiff(editor, generatedCode, 'Código Gerado pelo Agente');
-            return `Código gerado e exibido no diff.`;
+            await this._applyCodeChanges(generatedCode);
+            return `Código gerado e aplicado no editor.`;
         } catch (error) {
             return `Erro ao gerar código: ${error instanceof Error ? error.message : String(error)}`;
         }
@@ -218,8 +260,8 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Editando código...' });
             const fullPrompt = this.buildEditPrompt(selectedCode, instruction, editor.document.languageId);
             const editedCode = await this._ollamaService.generateCode(fullPrompt);
-            await this._diffManager.showCodeDiff(editor, editedCode, 'Código Editado pelo Agente', selection);
-            return `Código editado e exibido no diff.`;
+            await this._applyCodeChanges(editedCode, selection.start.line, selection.start.character, selection.end.line, selection.end.character);
+            return `Código editado e aplicado no editor.`;
         } catch (error) {
             return `Erro ao editar código: ${error instanceof Error ? error.message : String(error)}`;
         }
@@ -233,6 +275,54 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             return `Análise de ${filePath}:\n\`\`\`\n${analysisResult}\n\`\`\``;
         } catch (error) {
             return `Erro ao analisar arquivo ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+
+    private async _listFiles(directoryPath: string): Promise<string> {
+        if (!directoryPath) return "Por favor, forneça um caminho de diretório para listar.";
+        if (!vscode.workspace.workspaceFolders) return "Nenhum workspace aberto.";
+
+        const absolutePath = path.resolve(vscode.workspace.workspaceFolders[0].uri.fsPath, directoryPath);
+
+        try {
+            const files = await fs.promises.readdir(absolutePath);
+            return `Arquivos em ${directoryPath}:\n${files.join('\n')}`;
+        } catch (error) {
+            return `Erro ao listar arquivos em ${directoryPath}: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+
+    private async _executeVscodeCommand(command: string, args: any[]): Promise<string> {
+        if (!command) return "Por favor, forneça um comando do VS Code para executar.";
+        try {
+            await vscode.commands.executeCommand(command, ...(args || []));
+            return `Comando \`${command}\` executado com sucesso.`;
+        } catch (error) {
+            return `Erro ao executar o comando \`${command}\`: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+
+    private async _applyCodeChanges(newCode: string, startLine?: number, startCharacter?: number, endLine?: number, endCharacter?: number): Promise<string> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return "Nenhum editor ativo encontrado para aplicar as mudanças.";
+
+        try {
+            await editor.edit(editBuilder => {
+                if (startLine !== undefined && startCharacter !== undefined && endLine !== undefined && endCharacter !== undefined) {
+                    const range = new vscode.Range(startLine, startCharacter, endLine, endCharacter);
+                    editBuilder.replace(range, newCode);
+                } else {
+                    // If no range is provided, replace the entire document
+                    const fullRange = new vscode.Range(
+                        editor.document.lineAt(0).range.start,
+                        editor.document.lineAt(editor.document.lineCount - 1).range.end
+                    );
+                    editBuilder.replace(fullRange, newCode);
+                }
+            });
+            return "Alterações de código aplicadas com sucesso.";
+        } catch (error) {
+            return `Erro ao aplicar alterações de código: ${error instanceof Error ? error.message : String(error)}`;
         }
     }
 
