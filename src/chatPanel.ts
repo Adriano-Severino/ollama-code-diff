@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path'; // Import path
-import { exec } from 'child_process'; // Import exec
 import { OllamaService } from './ollama';
 import { DiffManager } from './diffManager';
 
@@ -69,10 +68,10 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             this._view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Digitando...' });
             const ollamaResponse = await this._ollamaService.chatWithOllama(userMessage, this._chatHistory);
             this._chatHistory.push({ role: 'assistant', content: ollamaResponse });
-            this._view?.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: ollamaResponse });
+            this._view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: ollamaResponse });
         } catch (error) {
             const errorMessage = `Erro: ${error instanceof Error ? error.message : String(error)}`;
-            this._view?.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
+            this._view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
             vscode.window.showErrorMessage(`Erro no chat: ${errorMessage}`);
         }
     }
@@ -86,8 +85,17 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         Você é um agente de IA que pode interagir com o ambiente do VS Code. Você tem acesso às seguintes ferramentas:
 
         1.  **run**: Executa um comando no terminal. Útil para comandos de shell, npm, git, etc.
-            Uso: /run <comando>
+            Uso: /run <command>
             Exemplo: /run npm install
+            Formato JSON esperado:
+            \`\`\`json
+            {
+              "tool": "run",
+              "args": {
+                "command": "npm install"
+              }
+            }
+            \`\`\`
 
         2.  **read**: Lê o conteúdo de um arquivo.
             Uso: /read <caminho_do_arquivo>
@@ -122,7 +130,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             Exemplo: /apply_code_changes "console.log('Hello');" 0 0 0 0 (para inserir no início)
             Exemplo: /apply_code_changes "novaFuncao();" 5 0 5 10 (para substituir a linha 5, caracteres 0-10)
 
-        Seu objetivo é responder à solicitação do usuário usando as ferramentas disponíveis. Responda SEMPRE no formato JSON, especificando a ferramenta a ser usada e seus argumentos. Se nenhuma ferramenta for apropriada, responda com uma mensagem de texto simples.
+        Seu objetivo é responder à solicitação do usuário usando as ferramentas disponíveis. Responda SEMPRE no formato JSON, especificando a ferramenta a ser usada e seus argumentos. Se nenhuma ferramenta for apropriada, responda com uma mensagem de texto simples. NÃO inclua NENHUM texto conversacional ou explicações adicionais se você estiver retornando um JSON de ferramenta.
 
         Formato JSON esperado para ferramentas:
         {
@@ -143,7 +151,14 @@ export class ChatPanel implements vscode.WebviewViewProvider {
 
             try {
                 console.log('Attempting to parse Ollama response...');
-                const parsedResponse = JSON.parse(ollamaResponse);
+                const jsonMatch = ollamaResponse.match(/```json\n([\s\S]*?)\n```/);
+                let parsedResponse;
+                if (jsonMatch && jsonMatch[1]) {
+                    parsedResponse = JSON.parse(jsonMatch[1]);
+                } else {
+                    // If no JSON block is found, try to parse the whole response as JSON
+                    parsedResponse = JSON.parse(ollamaResponse);
+                }
                 console.log('Ollama Parsed Response:', parsedResponse); // Existing log
                 console.log('Attempting to execute tool...');
                 agentResponse = await this._executeTool(parsedResponse.tool, parsedResponse.args);
@@ -186,20 +201,20 @@ export class ChatPanel implements vscode.WebviewViewProvider {
 
     private _runCommand(command: string): Promise<string> {
         if (!command) return Promise.resolve("Por favor, forneça um comando para executar.");
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            return Promise.resolve("Nenhum workspace aberto para executar o comando.");
+        }
 
-        return new Promise((resolve) => {
-            exec(command, (error, stdout, stderr) => {
-                if (error) {
-                    resolve(`Erro ao executar comando: ${error.message}`);
-                    return;
-                }
-                if (stderr) {
-                    resolve(`Stderr: ${stderr}`);
-                    return;
-                }
-                resolve(`Stdout: ${stdout}`);
-            });
-        });
+        const cwd = vscode.workspace.workspaceFolders[0].uri.fsPath; // Get the current workspace folder path
+
+        try {
+            const terminal = vscode.window.createTerminal({ name: "Ollama Agent", cwd: cwd });
+            terminal.show();
+            terminal.sendText(command);
+            return Promise.resolve(`Comando \`${command}\` enviado para o terminal. Verifique o terminal para a saída.`);
+        } catch (error) {
+            return Promise.resolve(`Erro ao abrir terminal ou executar comando: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
 
     private async _readFile(filePath: string): Promise<string> {
