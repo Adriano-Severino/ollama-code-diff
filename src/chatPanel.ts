@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path'; // Import path
+import * as os from 'os'; // Import os for temporary file handling
 // Removed: import { exec } from 'child_process'; // Removed as we are using vscode.window.createTerminal
 
 import { OllamaService } from './ollama';
@@ -83,8 +84,54 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         let agentResponse = "";
         this._view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Pensando...' });
 
-        // Corrected toolsDescription string with proper escaping
-        const toolsDescription = `\n        Você é um agente de IA que pode interagir com o ambiente do VS Code. Você tem acesso às seguintes ferramentas:\n\n        1.  **run**: Executa um comando no terminal. Útil para comandos de shell, npm, git, etc.\n            Uso: /run <command>\n            Exemplo: /run npm install\n            Formato JSON esperado:\n            \`\`\`json\n            {\n              \"tool\": \"run\",\n              \"args\": {\n                \"command\": \"npm install\"\n              }\n            }\n            \`\`\`\n\n        2.  **read**: Lê o conteúdo de um arquivo.\n            Uso: /read <caminho_do_arquivo>\n            Exemplo: /read src/extension.ts\n\n        3.  **write**: Escreve conteúdo em um arquivo. Se o arquivo não existir, ele será criado.\n            Uso: /write <caminho_do_arquivo> <conteúdo>\n            Exemplo: /write test.txt \"Hello World\"\n\n        4.  **generate_code**: Gera código baseado em um prompt. O código gerado será mostrado em uma visualização de diff.\n            Uso: /generate_code <prompt_de_geracao>\n            Exemplo: /generate_code Crie uma função JavaScript para somar dois números.\n            Formato JSON esperado:\n            \`\`\`json\n            {\n              \"tool\": \"generate_code\",\n              \"args\": {\n                \"prompt\": \"Crie uma função JavaScript para somar dois números.\"\n              }\n            }\n            \`\`\`\n\n        5.  **edit_code**: Edita o código selecionado no editor ativo. O código editado será mostrado em uma visualização de diff.\n            Uso: /edit_code <instrucao_de_edicao>\n            Exemplo: /edit_code Refatore esta função para usar arrow functions.\n\n        6.  **analyze_file**: Analisa um arquivo específico com base em uma instrução.\n            Uso: /analyze_file <caminho_do_arquivo> <instrucao_de_analise>\n            Exemplo: /analyze_file src/ollama.ts Encontre possíveis bugs de performance.\n\n        7.  **list_files**: Lista os arquivos em um diretório.\n            Uso: /list_files <caminho_do_diretorio>\n            Exemplo: /list_files src\n\n        8.  **execute_vscode_command**: Executa um comando interno do VS Code.\n            Uso: /execute_vscode_command <nome_do_comando> <...args>\n            Exemplo: /execute_vscode_command editor.action.formatDocument\n\n        9.  **apply_code_changes**: Aplica alterações de código diretamente no editor ativo.\n            Uso: /apply_code_changes <novo_codigo> [startLine] [startCharacter] [endLine] [endCharacter]\n            Exemplo: /apply_code_changes \"console.log('Hello');\" 0 0 0 0 (para inserir no início)\n            Exemplo: /apply_code_changes \"novaFuncao();\" 5 0 5 10 (para substituir a linha 5, caracteres 0-10)\n\n        Seu objetivo é responder à solicitação do usuário usando as ferramentas disponíveis. Responda SEMPRE no formato JSON, especificando a ferramenta a ser usada e seus argumentos. Se nenhuma ferramenta for apropriada, responda com uma mensagem de texto simples. NÃO inclua NENHUM texto conversacional ou explicações adicionais se você estiver retornando um JSON de ferramenta.\n\n        Formato JSON esperado para ferramentas:\n        {\n          \"tool\": \"nome_da_ferramenta\",\n          \"args\": {\n            \"arg1\": \"valor1\",\n            \"arg2\": \"valor2\"\n          }\n        }\n        `;
+       const toolsDescription = `\n        Você é um agente de IA que pode interagir com o
+     ambiente do VS Code. Você tem acesso às seguintes ferramentas:\n\n        1.  **run**: Executa
+     um comando no terminal. Útil para comandos de shell, npm, git, etc.\n            Uso: /run
+     <command>\n            Exemplo: /run npm install\n            Formato JSON esperado:\n
+     \`\`\`json\n            {\n              "tool": "run",\n              "args": {\n
+     "command": "npm install"\n              }\n            }\n            \`\`\`\n\n        2.
+     **read**: Lê o conteúdo de um arquivo.\n            Uso: /read <caminho_do_arquivo>\n
+     Exemplo: /read src/extension.ts\n\n        3.  **write**: Escreve conteúdo em um arquivo. Se o
+     arquivo não existir, ele será criado.\n            Uso: /write <caminho_do_arquivo> <conteúdo>\n
+     Exemplo: /write test.txt "Hello World"\n\n        4.  **generate_code**: Gera código baseado em
+     um prompt e o aplica **automaticamente** ao editor ativo.\n            Uso: /generate_code
+     <prompt_de_geracao>\n            Exemplo: /generate_code Crie uma função JavaScript para somar
+     dois números.\n            Formato JSON esperado:\n            \`\`\`json\n            {\n
+     "tool": "generate_code",\n              "args": {\n                "prompt": "Crie uma função
+     JavaScript para somar dois números."\n              }\n            }\n            \`\`\`\n\n
+     5.  **edit_code**: Edita o código selecionado no editor ativo e aplica as mudanças
+     **automaticamente**.\n            Uso: /edit_code <instrucao_de_edicao>\n            Exemplo:
+     /edit_code Refatore esta função para usar arrow functions.\n\n        6.  **analyze_file**:
+     Analisa um arquivo específico com base em uma instrução.\n            Uso: /analyze_file
+     <caminho_do_arquivo> <instrucao_de_analise>\n            Exemplo: /analyze_file src/ollama.ts
+     Encontre possíveis bugs de performance.\n\n        7.  **list_files**: Lista arquivos e
+     diretórios em um caminho específico.\n            Uso: /list_files <caminho_do_diretorio>\n
+     Exemplo: /list_files src\n\n        8.  **execute_vscode_command**: Executa um comando interno
+     do VS Code.\n            Uso: /execute_vscode_command <nome_do_comando> <...args>\n
+     Exemplo: /execute_vscode_command editor.action.formatDocument\n\n        9.  **open_file**: Abre
+     um arquivo no editor do VS Code.\n            Uso: /open_file <caminho_do_arquivo>\n
+     Exemplo: /open_file src/extension.ts\n\n        10. **apply_code_changes**: Aplica alterações de
+     código diretamente no editor ativo. Esta ferramenta é usada internamente por \`generate_code\` e
+     \`edit_code\`.\n            Uso: /apply_code_changes <novo_codigo> [startLine] [startCharacter]
+     [endLine] [endCharacter]\n            Exemplo: /apply_code_changes "console.log('Hello');" 0 0 0
+     0 (para inserir no início)\n            Exemplo: /apply_code_changes "novaFuncao();" 5 0 5 10
+     (para substituir a linha 5, caracteres 0-10)\n\n        11. **apply_diff**: Aplica um patch de
+     diff a um arquivo. Útil para aplicar patches externos.\n            Uso: /apply_diff
+     <conteudo_do_diff>\n            Exemplo: /apply_diff "diff --git a/file.txt b/file.txt\\nindex
+     123..456 100644\\n--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old line\\n+new line"\n\n
+     12. **find_file**: Localiza um arquivo no workspace.\n            Uso: /find_file
+     <nome_do_arquivo_ou_padrao>\n            Exemplo: /find_file "package.json"\n
+     Exemplo: /find_file "*.ts"\n\n        13. **save_file**: Salva o arquivo ativo no editor.\n
+     Uso: /save_file\n\n        14. **close_file**: Fecha o arquivo ativo no editor.\n
+     Uso: /close_file\n\n        15. **get_selected_text**: Obtém o texto atualmente selecionado no
+     editor ativo.\n            Uso: /get_selected_text\n\n        Seu objetivo é responder à
+     solicitação do usuário usando as ferramentas disponíveis. Responda SEMPRE no formato JSON,
+     especificando a ferramenta a ser usada e seus argumentos. Responda com uma mensagem de texto
+     simples se nenhuma ferramenta for apropriada. NÃO inclua NENHUM texto conversacional ou
+     explicações adicionais se você estiver retornando um JSON de ferramenta.\n\n        Formato JSON
+     esperado para ferramentas:\n        {\n          "tool": "nome_da_ferramenta",\n
+     "args": {\n            "arg1": "valor1",\n            "arg2": "valor2"\n          }\n        }\n
+     `;
 
         const agentPrompt = `${toolsDescription}\n\nSolicitação do usuário: ${userMessage}`;
 
@@ -135,8 +182,20 @@ export class ChatPanel implements vscode.WebviewViewProvider {
                 return this._listFiles(args.directoryPath);
             case 'execute_vscode_command':
                 return this._executeVscodeCommand(args.command, args.args);
+            case 'open_file':
+                return this._openFile(args.filePath);
             case 'apply_code_changes':
                 return this._applyCodeChanges(args.newCode, args.startLine, args.startCharacter, args.endLine, args.endCharacter);
+            case 'apply_diff':
+                return this._applyDiff(args.diffContent);
+            case 'find_file':
+                return this._findFile(args.pattern);
+            case 'save_file':
+                return this._saveFile();
+            case 'close_file':
+                return this._closeFile();
+            case 'get_selected_text':
+                return this._getSelectedText();
             default:
                 console.error(`Ferramenta desconhecida: ${tool}.`); // Add this line
                 return `Ferramenta desconhecida: ${tool}.`;
@@ -260,9 +319,26 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         if (!command) return "Por favor, forneça um comando do VS Code para executar.";
         try {
             await vscode.commands.executeCommand(command, ...(args || []));
-            return `Comando \`${command}\` executado com sucesso.`;
+            return `Comando ${command} executado com sucesso.`; 
         } catch (error) {
-            return `Erro ao executar o comando \`${command}\`: ${error instanceof Error ? error.message : String(error)}`;
+            return `Erro ao executar o comando ${command}: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+
+    private async _openFile(filePath: string): Promise<string> {
+        if (!filePath) return "Por favor, forneça um caminho de arquivo para abrir.";
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            return "Nenhum workspace aberto para abrir o arquivo.";
+        }
+
+        const absolutePath = path.resolve(vscode.workspace.workspaceFolders[0].uri.fsPath, filePath);
+
+        try {
+            const document = await vscode.workspace.openTextDocument(absolutePath);
+            await vscode.window.showTextDocument(document);
+            return `Arquivo ${filePath} aberto com sucesso.`
+        } catch (error) {
+            return `Erro ao abrir o arquivo ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
         }
     }
 
@@ -306,10 +382,88 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         vscode.window.showInformationMessage(`Modelo Ollama alterado para: ${modelName}`);
     }
 
-    private _requestCurrentModel() {
+    private async _requestCurrentModel() {
         const currentConfig = vscode.workspace.getConfiguration('ollama-code-diff');
         const currentModel = currentConfig.get<string>('modelName');
         this._view?.webview.postMessage({ type: 'currentModel', modelName: currentModel });
+    }
+
+    private async _applyDiff(diffContent: string): Promise<string> {
+        if (!diffContent) return "Por favor, forneça o conteúdo do diff para aplicar.";
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            return "Nenhum workspace aberto para aplicar o diff.";
+        }
+
+        const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        const tempDir = os.tmpdir();
+        const tempFilePath = path.join(tempDir, `ollama-code-diff-${Date.now()}.patch`);
+
+        try {
+            // Write the diff content to a temporary file
+            await fs.promises.writeFile(tempFilePath, diffContent, 'utf8');
+
+            // Apply the diff using git apply
+            const terminal = vscode.window.createTerminal({ name: "Ollama Diff Apply", cwd: workspaceRoot });
+            terminal.show();
+            terminal.sendText(`git apply --whitespace=fix ${tempFilePath}`);
+
+            // Optionally, you might want to wait for the command to complete and capture its output.
+            // For now, we'll just send the command and return a message.
+            return `Diff aplicado com sucesso. Verifique o terminal para detalhes.`;
+        } catch (error) {
+            return `Erro ao aplicar o diff: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+            // Clean up the temporary file
+            try {
+                await fs.promises.unlink(tempFilePath);
+            } catch (cleanupError) {
+                console.error(`Erro ao remover arquivo temporário ${tempFilePath}: ${cleanupError}`);
+            }
+        }
+    }
+
+    private async _findFile(pattern: string): Promise<string> {
+        if (!pattern) return "Por favor, forneça um padrão para buscar arquivos.";
+        try {
+            const uris = await vscode.workspace.findFiles(pattern, null, 10); // Limit to 10 results
+            if (uris.length === 0) {
+                return `Nenhum arquivo encontrado para o padrão: ${pattern}.`;
+            }
+            return `Arquivos encontrados para '${pattern}':\n${uris.map(uri => uri.fsPath).join('\n')}`;
+        } catch (error) {
+            return `Erro ao buscar arquivos: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+
+    private async _saveFile(): Promise<string> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return "Nenhum editor ativo para salvar.";
+        try {
+            await editor.document.save();
+            return `Arquivo '${editor.document.fileName}' salvo com sucesso.`;
+        } catch (error) {
+            return `Erro ao salvar arquivo: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+
+    private async _closeFile(): Promise<string> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return "Nenhum editor ativo para fechar.";
+        try {
+            await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+            return `Arquivo '${editor.document.fileName}' fechado com sucesso.`;
+        } catch (error) {
+            return `Erro ao fechar arquivo: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+
+    private _getSelectedText(): Promise<string> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return Promise.resolve("Nenhum editor ativo. Abra um arquivo e selecione o código.");
+        const selection = editor.selection;
+        const selectedText = editor.document.getText(selection);
+        if (!selectedText) return Promise.resolve("Nenhum texto selecionado no editor ativo.");
+        return Promise.resolve(`Texto selecionado:\n\`\`\`\n${selectedText}\n\`\`\``);
     }
 
     public getEditorContext(editor: vscode.TextEditor): string {

@@ -55,6 +55,51 @@ Configurações - Alterar modelo e parâmetros
 
 ![alt text](image-2.png)
 
+### 🤖 Modo Agente (Interação Avançada)
+
+No modo Agente, a extensão Ollama Code Diff se transforma em um assistente de IA capaz de executar ações diretamente no seu ambiente VS Code. Você pode instruí-lo a realizar tarefas complexas usando comandos específicos (ferramentas).
+
+**Como Ativar:**
+1.  No painel de chat da extensão, selecione "Agent" no seletor de modo.
+2.  Envie suas instruções usando o formato de comando das ferramentas.
+
+**Ferramentas Disponíveis no Modo Agente:**
+
+*   **`/run <command>`**: Executa um comando no terminal. Útil para comandos de shell, npm, git, etc.
+    *   Exemplo: `/run npm install`
+*   **`/read <file_path>`**: Lê o conteúdo de um arquivo.
+    *   Exemplo: `/read src/extension.ts`
+*   **`/write <file_path> <content>`**: Escreve conteúdo em um arquivo. Se o arquivo não existir, ele será criado.
+    *   Exemplo: `/write test.txt "Hello World"`
+*   **`/generate_code <generation_prompt>`**: Gera código baseado em um prompt e o aplica **automaticamente** ao editor ativo.
+    *   Exemplo: `/generate_code Crie uma função JavaScript para somar dois números.`
+*   **`/edit_code <editing_instruction>`**: Edita o código selecionado no editor ativo e aplica as mudanças **automaticamente**.
+    *   Exemplo: `/edit_code Refatore esta função para usar arrow functions.`
+*   **`/analyze_file <file_path> <analysis_instruction>`**: Analisa um arquivo específico com base em uma instrução.
+    *   Exemplo: `/analyze_file src/ollama.ts Encontre possíveis bugs de performance.`
+*   **`/list_files <directory_path>`**: Lista arquivos e diretórios em um caminho específico.
+    *   Exemplo: `/list_files src`
+*   **`/execute_vscode_command <command_name> [...args]`**: Executa um comando interno do VS Code.
+    *   Exemplo: `/execute_vscode_command editor.action.formatDocument`
+*   **`/open_file <file_path>`**: Abre um arquivo no editor do VS Code.
+    *   Exemplo: `/open_file src/extension.ts`
+*   **`/apply_code_changes <new_code> [startLine] [startCharacter] [endLine] [endCharacter]`**: Aplica alterações de código diretamente no editor ativo. Esta ferramenta é usada internamente por `generate_code` e `edit_code`.
+    *   Exemplo: `/apply_code_changes "console.log('Hello');" 0 0 0 0` (para inserir no início)
+*   **`/apply_diff <diff_content>`**: Aplica um patch de diff a um arquivo. Útil para aplicar patches externos.
+    *   Exemplo: `/apply_diff "diff --git a/file.txt b/file.txt
+index 123..456 100644
+--- a/file.txt
++++ b/file.txt
+@@ -1 +1 @@
+-old line
++new line"`
+*   **`/find_file <file_name_or_pattern>`**: Localiza um arquivo no workspace.
+    *   Exemplo: `/find_file "package.json"`
+    *   Exemplo: `/find_file "*.ts"`
+*   **`/save_file`**: Salva o arquivo ativo no editor.
+*   **`/close_file`**: Fecha o arquivo ativo no editor.
+*   **`/get_selected_text`**: Obtém o texto atualmente selecionado no editor ativo.
+
 ### 💡 Exemplos de Uso
 --------------------
 ### 🔨 Gerar Código
