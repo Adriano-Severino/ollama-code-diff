@@ -1,129 +1,45 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import * as fs from 'fs';
 import { OllamaService } from './ollama';
 import { DiffManager } from './diffManager';
+import { ChatPanel } from './chatPanel'; // Import the new ChatPanel class
 
-class ChatViewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewId = 'ollama-code-diff.chatView';
 
-    private _view?: vscode.WebviewView;
-    private _ollamaService: OllamaService;
-    private _chatHistory: Array<{ role: string, content: string }> = [];
-
-    constructor(private readonly _extensionUri: vscode.Uri, ollamaService: OllamaService) {
-        console.log('ChatViewProvider: Construtor chamado.');
-        this._ollamaService = ollamaService;
-    }
-
-    public resolveWebviewView(
-        webviewView: vscode.WebviewView,
-        context: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
-    ) {
-        console.log('ChatViewProvider: resolveWebviewView chamado.');
-        this._view = webviewView;
-
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [this._extensionUri]
-        };
-
-        // Adicionar listeners para depuração
-        webviewView.onDidDispose(() => console.log('ChatViewProvider: WebviewView descartado.'));
-        webviewView.onDidChangeVisibility(() => console.log(`ChatViewProvider: Visibilidade alterada para ${webviewView.visible}`));
-
-        try {
-            webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
-            console.log('ChatViewProvider: HTML do webview definido.');
-        } catch (e) {
-            console.error('ChatViewProvider: Erro ao definir HTML do webview:', e);
-        }
-
-        webviewView.webview.onDidReceiveMessage(async message => {
-            console.log(`ChatViewProvider: Mensagem recebida do webview: ${message.command}`);
-            switch (message.command) {
-                case 'sendMessage':
-                    const userMessage = message.text;
-                    this._chatHistory.push({ role: 'user', content: userMessage });
-                    webviewView.webview.postMessage({ type: 'addMessage', sender: 'user', text: userMessage });
-
-                    try {
-                        webviewView.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Digitando...' });
-                        const ollamaResponse = await this._ollamaService.chatWithOllama(userMessage, this._chatHistory);
-                        this._chatHistory.push({ role: 'assistant', content: ollamaResponse });
-                        webviewView.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: ollamaResponse });
-                    } catch (error) {
-                        const errorMessage = `Erro: ${error instanceof Error ? error.message : String(error)}`;
-                        webviewView.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
-                        vscode.window.showErrorMessage(`Erro no chat: ${errorMessage}`);
-                    }
-                    break;
-            }
-        });
-        console.log('ChatViewProvider: onDidReceiveMessage configurado.');
-    }
-
-    private _getHtmlForWebview(webview: vscode.Webview) {
-        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'chat.css'));
-        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'chat.js'));
-
-        return `<!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};">
-                <link href="${styleUri}" rel="stylesheet">
-                <title>Ollama Chat</title>
-            </head>
-            <body>
-                <div id="chat-container">
-                    <div id="messages"></div>
-                    <div class="input-area">
-                        <input type="text" id="chat-input" placeholder="Digite sua mensagem...">
-                        <button id="send-button">Enviar</button>
-                    </div>
-                </div>
-                <script src="${scriptUri}"></script>
-            </body>
-            </html>`;
-    }
-}
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Ollama Code Diff extension ativada! (Versão com diagnóstico)');
 
     const ollamaService = new OllamaService();
     const diffManager = new DiffManager();
+    const chatPanel = new ChatPanel(context.extensionUri, ollamaService, diffManager);
 
-    // NOVO: Criar botão na barra de status
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(ChatPanel.viewId, chatPanel)
+    );
+
     const statusBarButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarButton.text = "$(robot) Ollama"; // Ícone + texto
+    statusBarButton.text = "$(robot) Ollama";
     statusBarButton.tooltip = "Ollama Code Diff - Clique para ver opções";
     statusBarButton.command = 'ollama-code-diff.showMenu';
     statusBarButton.show();
 
-    // NOVO: Comando do menu principal
     const showMenuCommand = vscode.commands.registerCommand(
         'ollama-code-diff.showMenu',
         async () => {
-            await showOllamaMenu(ollamaService, diffManager);
+            await showOllamaMenu(ollamaService, diffManager, chatPanel); // Pass chatPanel instance
         }
     );
 
-    // Comandos existentes
     const generateCodeCommand = vscode.commands.registerCommand(
         'ollama-code-diff.generateCode',
         async () => {
-            await handleGenerateCode(ollamaService, diffManager);
+            await handleGenerateCode(ollamaService, diffManager, chatPanel);
         }
     );
 
     const editCodeCommand = vscode.commands.registerCommand(
         'ollama-code-diff.editCode',
         async () => {
-            await handleEditCode(ollamaService, diffManager);
+            await handleEditCode(ollamaService, diffManager, chatPanel);
         }
     );
 
@@ -155,8 +71,6 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
 
-    console.log('Registrando WebviewViewProvider...');
-    console.log('Registrando WebviewViewProvider...');
     context.subscriptions.push(
         statusBarButton,
         showMenuCommand,
@@ -165,17 +79,11 @@ export function activate(context: vscode.ExtensionContext) {
         analyzeFileCommand,
         analyzeProjectCommand,
         analyzeMultipleFilesCommand,
-        showDiffCommand,
-        vscode.window.registerWebviewViewProvider(
-            ChatViewProvider.viewId,
-            new ChatViewProvider(context.extensionUri, ollamaService)
-        )
+        showDiffCommand
     );
-    console.log('WebviewViewProvider registrado.');
-    console.log('WebviewViewProvider registrado.');
 }
 
-async function showOllamaMenu(ollamaService: OllamaService, diffManager: DiffManager) {
+async function showOllamaMenu(ollamaService: OllamaService, diffManager: DiffManager, chatPanel: ChatPanel) {
     const editor = vscode.window.activeTextEditor;
     const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
     
@@ -239,10 +147,10 @@ async function showOllamaMenu(ollamaService: OllamaService, diffManager: DiffMan
     // Executar ação baseada na seleção
     switch (selected.label) {
         case "$(add) Gerar Código":
-            await handleGenerateCode(ollamaService, diffManager);
+            await handleGenerateCode(ollamaService, diffManager, chatPanel);
             break;
         case "$(edit) Editar Código":
-            await handleEditCode(ollamaService, diffManager);
+            await handleEditCode(ollamaService, diffManager, chatPanel);
             break;
         case "$(search) Analisar Arquivo":
             await handleAnalyzeFile(ollamaService);
@@ -485,7 +393,7 @@ async function checkOllamaStatus(ollamaService: OllamaService) {
 }
 
 // Função para gerar código
-async function handleGenerateCode(ollamaService: OllamaService, diffManager: DiffManager) {
+async function handleGenerateCode(ollamaService: OllamaService, diffManager: DiffManager, chatPanel: ChatPanel) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showErrorMessage('Nenhum editor ativo encontrado');
@@ -503,9 +411,9 @@ async function handleGenerateCode(ollamaService: OllamaService, diffManager: Dif
         vscode.window.showInformationMessage('Gerando código...');
         
         const language = editor.document.languageId;
-        const context = getEditorContext(editor);
+        const context = chatPanel.getEditorContext(editor);
         
-        const fullPrompt = buildGeneratePrompt(prompt, language, context);
+        const fullPrompt = chatPanel.buildGeneratePrompt(prompt, language, context);
         const generatedCode = await ollamaService.generateCode(fullPrompt);
         
         await diffManager.showCodeDiff(editor, generatedCode, 'Código Gerado');
@@ -516,7 +424,7 @@ async function handleGenerateCode(ollamaService: OllamaService, diffManager: Dif
 }
 
 // Função para editar código
-async function handleEditCode(ollamaService: OllamaService, diffManager: DiffManager) {
+async function handleEditCode(ollamaService: OllamaService, diffManager: DiffManager, chatPanel: ChatPanel) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showErrorMessage('Nenhum editor ativo encontrado');
@@ -542,7 +450,7 @@ async function handleEditCode(ollamaService: OllamaService, diffManager: DiffMan
         vscode.window.showInformationMessage('Editando código...');
         
         const language = editor.document.languageId;
-        const fullPrompt = buildEditPrompt(selectedCode, editInstruction, language);
+        const fullPrompt = chatPanel.buildEditPrompt(selectedCode, editInstruction, language);
         const editedCode = await ollamaService.generateCode(fullPrompt);
         
         await diffManager.showCodeDiff(
@@ -671,23 +579,4 @@ async function handleAnalyzeMultipleFiles(ollamaService: OllamaService) {
     }
 }
 
-function getEditorContext(editor: vscode.TextEditor): string {
-    const document = editor.document;
-    const currentLine = editor.selection.active.line;
-    
-    const startLine = Math.max(0, currentLine - 5);
-    const endLine = Math.min(document.lineCount - 1, currentLine + 5);
-    
-    const range = new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length);
-    return document.getText(range);
-}
-
-function buildGeneratePrompt(userPrompt: string, language: string, context: string): string {
-    return `\nVocê é um assistente de programação especializado. Gere código ${language} baseado na seguinte solicitação:\n\nSOLICITAÇÃO: ${userPrompt}\n\nCONTEXTO DO CÓDIGO ATUAL:\n\`\`\`${language}\n${context}\n\`\`\`\n\nINSTRUÇÕES:\n- Gere apenas o código solicitado, sem explicações\n- Mantenha o estilo consistente com o contexto\n- Use boas práticas da linguagem ${language}\n- Adicione comentários apenas quando necessário\n\nCÓDIGO:`;
-}
-
-function buildEditPrompt(originalCode: string, editInstruction: string, language: string): string {
-    return `\nVocê é um assistente de programação especializado. Edite o código seguindo as instruções fornecidas:\n\nCÓDIGO ORIGINAL:\n\`\`\`${language}\n${originalCode}\n\`\`\`\n\nINSTRUÇÃO DE EDIÇÃO: ${editInstruction}\n\nINSTRUÇÕES:\n- Mantenha a funcionalidade principal do código\n- Aplique apenas as mudanças solicitadas\n- Use boas práticas da linguagem ${language}\n- Retorne apenas o código editado, sem explicações\n\nCÓDIGO EDITADO:`;
-}
-
-export function deactivate() {}
+    export function deactivate() {}

@@ -22,8 +22,8 @@ modeSelect.addEventListener('change', () => {
 
 modelSelect.addEventListener('change', () => {
     vscode.postMessage({
-        command: 'changeModel',
-        model: modelSelect.value
+        command: 'setSelectedModel',
+        modelName: modelSelect.value
     });
 });
 
@@ -48,10 +48,10 @@ window.addEventListener('message', event => {
         case 'replaceLastMessage':
             replaceLastMessage(message.text, message.sender);
             break;
-        case 'setModels':
+        case 'availableModels':
             populateModelSelect(message.models);
             break;
-        case 'setCurrentModel':
+        case 'currentModel':
             modelSelect.value = message.modelName;
             break;
     }
@@ -82,5 +82,6 @@ function populateModelSelect(models) {
     });
 }
 
-// Solicitar modelos disponíveis quando o webview é carregado
-vscode.postMessage({ command: 'getModels' });
+// Solicitar modelos disponíveis e o modelo atual quando o webview é carregado
+vscode.postMessage({ command: 'requestModels' });
+vscode.postMessage({ command: 'requestCurrentModel' });
