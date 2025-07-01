@@ -271,10 +271,20 @@ export class ChatPanel implements vscode.WebviewViewProvider {
 
     private async _editCode(instruction: string): Promise<string> {
         const editor = vscode.window.activeTextEditor;
-        if (!editor) return "Nenhum editor ativo. Abra um arquivo e selecione o código para editar.";
-        const selection = editor.selection;
-        const selectedCode = editor.document.getText(selection);
-        if (!selectedCode) return "Selecione o código que deseja editar.";
+        if (!editor) return "Nenhum editor ativo. Abra um arquivo para editar ou selecione o código.";
+        
+        let selectedCode = editor.document.getText(editor.selection);
+        let rangeToReplace: vscode.Range = editor.selection;
+
+        if (!selectedCode) {
+            // If no code is selected, get the entire document content
+            selectedCode = editor.document.getText();
+            rangeToReplace = new vscode.Range(
+                editor.document.lineAt(0).range.start,
+                editor.document.lineAt(editor.document.lineCount - 1).range.end
+            );
+        }
+
         if (!instruction) return "Por favor, forneça uma instrução de edição.";
 
         try {
@@ -283,7 +293,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
             const editedCode = await this._ollamaService.generateCode(fullPrompt);
             // Remove Markdown code block delimiters
             const cleanedCode = editedCode.replace(/```[a-zA-Z]*\n([\s\S]*?)\n```/, '$1').trim();
-            await this._applyCodeChanges(cleanedCode, selection.start.line, selection.start.character, selection.end.line, selection.end.character);
+            await this._applyCodeChanges(cleanedCode, rangeToReplace.start.line, rangeToReplace.start.character, rangeToReplace.end.line, rangeToReplace.end.character);
             return `Código editado e aplicado no editor.`;
         } catch (error) {
             return `Erro ao editar código: ${error instanceof Error ? error.message : String(error)}`;
