@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path'; // Import path
+// Removed: import { exec } from 'child_process'; // Removed as we are using vscode.window.createTerminal
+
 import { OllamaService } from './ollama';
 import { DiffManager } from './diffManager';
 
@@ -81,66 +83,8 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         let agentResponse = "";
         this._view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Pensando...' });
 
-        const toolsDescription = `
-        Você é um agente de IA que pode interagir com o ambiente do VS Code. Você tem acesso às seguintes ferramentas:
-
-        1.  **run**: Executa um comando no terminal. Útil para comandos de shell, npm, git, etc.
-            Uso: /run <command>
-            Exemplo: /run npm install
-            Formato JSON esperado:
-            \`\`\`json
-            {
-              "tool": "run",
-              "args": {
-                "command": "npm install"
-              }
-            }
-            \`\`\`
-
-        2.  **read**: Lê o conteúdo de um arquivo.
-            Uso: /read <caminho_do_arquivo>
-            Exemplo: /read src/extension.ts
-
-        3.  **write**: Escreve conteúdo em um arquivo. Se o arquivo não existir, ele será criado.
-            Uso: /write <caminho_do_arquivo> <conteúdo>
-            Exemplo: /write test.txt "Hello World"
-
-        4.  **generate_code**: Gera código baseado em um prompt. O código gerado será mostrado em uma visualização de diff.
-            Uso: /generate_code <prompt_de_geracao>
-            Exemplo: /generate_code Crie uma função JavaScript para somar dois números.
-
-        5.  **edit_code**: Edita o código selecionado no editor ativo. O código editado será mostrado em uma visualização de diff.
-            Uso: /edit_code <instrucao_de_edicao>
-            Exemplo: /edit_code Refatore esta função para usar arrow functions.
-
-        6.  **analyze_file**: Analisa um arquivo específico com base em uma instrução.
-            Uso: /analyze_file <caminho_do_arquivo> <instrucao_de_analise>
-            Exemplo: /analyze_file src/ollama.ts Encontre possíveis bugs de performance.
-
-        7.  **list_files**: Lista os arquivos em um diretório.
-            Uso: /list_files <caminho_do_diretorio>
-            Exemplo: /list_files src
-
-        8.  **execute_vscode_command**: Executa um comando interno do VS Code.
-            Uso: /execute_vscode_command <nome_do_comando> <...args>
-            Exemplo: /execute_vscode_command editor.action.formatDocument
-
-        9.  **apply_code_changes**: Aplica alterações de código diretamente no editor ativo.
-            Uso: /apply_code_changes <novo_codigo> [startLine] [startCharacter] [endLine] [endCharacter]
-            Exemplo: /apply_code_changes "console.log('Hello');" 0 0 0 0 (para inserir no início)
-            Exemplo: /apply_code_changes "novaFuncao();" 5 0 5 10 (para substituir a linha 5, caracteres 0-10)
-
-        Seu objetivo é responder à solicitação do usuário usando as ferramentas disponíveis. Responda SEMPRE no formato JSON, especificando a ferramenta a ser usada e seus argumentos. Se nenhuma ferramenta for apropriada, responda com uma mensagem de texto simples. NÃO inclua NENHUM texto conversacional ou explicações adicionais se você estiver retornando um JSON de ferramenta.
-
-        Formato JSON esperado para ferramentas:
-        {
-          "tool": "nome_da_ferramenta",
-          "args": {
-            "arg1": "valor1",
-            "arg2": "valor2"
-          }
-        }
-        `;
+        // Corrected toolsDescription string with proper escaping
+        const toolsDescription = `\n        Você é um agente de IA que pode interagir com o ambiente do VS Code. Você tem acesso às seguintes ferramentas:\n\n        1.  **run**: Executa um comando no terminal. Útil para comandos de shell, npm, git, etc.\n            Uso: /run <command>\n            Exemplo: /run npm install\n            Formato JSON esperado:\n            \`\`\`json\n            {\n              \"tool\": \"run\",\n              \"args\": {\n                \"command\": \"npm install\"\n              }\n            }\n            \`\`\`\n\n        2.  **read**: Lê o conteúdo de um arquivo.\n            Uso: /read <caminho_do_arquivo>\n            Exemplo: /read src/extension.ts\n\n        3.  **write**: Escreve conteúdo em um arquivo. Se o arquivo não existir, ele será criado.\n            Uso: /write <caminho_do_arquivo> <conteúdo>\n            Exemplo: /write test.txt \"Hello World\"\n\n        4.  **generate_code**: Gera código baseado em um prompt. O código gerado será mostrado em uma visualização de diff.\n            Uso: /generate_code <prompt_de_geracao>\n            Exemplo: /generate_code Crie uma função JavaScript para somar dois números.\n            Formato JSON esperado:\n            \`\`\`json\n            {\n              \"tool\": \"generate_code\",\n              \"args\": {\n                \"prompt\": \"Crie uma função JavaScript para somar dois números.\"\n              }\n            }\n            \`\`\`\n\n        5.  **edit_code**: Edita o código selecionado no editor ativo. O código editado será mostrado em uma visualização de diff.\n            Uso: /edit_code <instrucao_de_edicao>\n            Exemplo: /edit_code Refatore esta função para usar arrow functions.\n\n        6.  **analyze_file**: Analisa um arquivo específico com base em uma instrução.\n            Uso: /analyze_file <caminho_do_arquivo> <instrucao_de_analise>\n            Exemplo: /analyze_file src/ollama.ts Encontre possíveis bugs de performance.\n\n        7.  **list_files**: Lista os arquivos em um diretório.\n            Uso: /list_files <caminho_do_diretorio>\n            Exemplo: /list_files src\n\n        8.  **execute_vscode_command**: Executa um comando interno do VS Code.\n            Uso: /execute_vscode_command <nome_do_comando> <...args>\n            Exemplo: /execute_vscode_command editor.action.formatDocument\n\n        9.  **apply_code_changes**: Aplica alterações de código diretamente no editor ativo.\n            Uso: /apply_code_changes <novo_codigo> [startLine] [startCharacter] [endLine] [endCharacter]\n            Exemplo: /apply_code_changes \"console.log('Hello');\" 0 0 0 0 (para inserir no início)\n            Exemplo: /apply_code_changes \"novaFuncao();\" 5 0 5 10 (para substituir a linha 5, caracteres 0-10)\n\n        Seu objetivo é responder à solicitação do usuário usando as ferramentas disponíveis. Responda SEMPRE no formato JSON, especificando a ferramenta a ser usada e seus argumentos. Se nenhuma ferramenta for apropriada, responda com uma mensagem de texto simples. NÃO inclua NENHUM texto conversacional ou explicações adicionais se você estiver retornando um JSON de ferramenta.\n\n        Formato JSON esperado para ferramentas:\n        {\n          \"tool\": \"nome_da_ferramenta\",\n          \"args\": {\n            \"arg1\": \"valor1\",\n            \"arg2\": \"valor2\"\n          }\n        }\n        `;
 
         const agentPrompt = `${toolsDescription}\n\nSolicitação do usuário: ${userMessage}`;
 
@@ -209,6 +153,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
 
         try {
             const terminal = vscode.window.createTerminal({ name: "Ollama Agent", cwd: cwd });
+            console.log('Attempting to show terminal...');
             terminal.show();
             terminal.sendText(command);
             return Promise.resolve(`Comando \`${command}\` enviado para o terminal. Verifique o terminal para a saída.`);
@@ -384,32 +329,6 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'chat.css'));
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'chat.js'));
 
-        return `<!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};">
-                <link href="${styleUri}" rel="stylesheet">
-                <title>Ollama Chat</title>
-            </head>
-            <body>
-                <div id="chat-container">
-                    <div class="controls">
-                        <select id="model-select"></select>
-                        <select id="mode-select">
-                            <option value="chat">Chat</option>
-                            <option value="agent">Agent</option>
-                        </select>
-                    </div>
-                    <div id="messages"></div>
-                    <div class="input-area">
-                        <input type="text" id="chat-input" placeholder="Digite sua mensagem...">
-                        <button id="send-button">Enviar</button>
-                    </div>
-                </div>
-                <script src="${scriptUri}"></script>
-            </body>
-            </html>`;
+        return `<!DOCTYPE html>\n            <html lang="en">\n            <head>\n                <meta charset="UTF-8">\n                <meta name="viewport" content="width=device-width, initial-scale=1.0">\n                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};">\n                <link href="${styleUri}" rel="stylesheet">\n                <title>Ollama Chat</title>\n            </head>\n            <body>\n                <div id="chat-container">\n                    <div class="controls">\n                        <select id="model-select"></select>\n                        <select id="mode-select">\n                            <option value="chat">Chat</option>\n                            <option value="agent">Agent</option>\n                        </select>\n                    </div>\n                    <div id="messages"></div>\n                    <div class="input-area">\n                        <input type="text" id="chat-input" placeholder="Digite sua mensagem...">\n                        <button id="send-button">Enviar</button>\n                    </div>\n                </div>\n                <script src="${scriptUri}"></script>\n            </body>\n            </html>`;
     }
 }
