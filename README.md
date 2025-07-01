@@ -177,7 +177,6 @@ Ctrl+K Ctrl+S → pesquisar atalho
 ## 📈 Roadmap
 ----------
 ### 🔜 Próximas Funcionalidades
-Chat integrado na sidebar
 
 Histórico de interações
 
