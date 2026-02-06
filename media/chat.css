@@ -1,31 +1,51 @@
-chat.cs
 :root {
   --container-padding: 16px;
-  --font-family: var(--vscode-font-family, "Segoe UI", sans-serif);
+  --font-family: "Segoe UI Variable Text", "Fira Sans", "Bahnschrift", var(--vscode-font-family, "Segoe UI");
+  --mono-font: "Cascadia Code", "Fira Code", var(--vscode-editor-font-family, "Consolas");
   --font-size: var(--vscode-font-size, 13px);
-  --line-height: 1.5;
+  --line-height: 1.55;
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+  --shadow-1: 0 6px 18px rgba(0, 0, 0, 0.22);
+  --shadow-2: 0 10px 24px rgba(0, 0, 0, 0.28);
+  --accent-rgb: 76, 194, 255;
+  --accent-2-rgb: 45, 211, 161;
 
   /* Colors derived from VS Code Theme */
   --bg-color: var(--vscode-editor-background);
   --fg-color: var(--vscode-editor-foreground);
+  --surface-0: color-mix(in srgb, var(--bg-color) 92%, white 8%);
+  --surface-1: color-mix(in srgb, var(--bg-color) 86%, white 14%);
+  --surface-2: color-mix(in srgb, var(--bg-color) 78%, white 22%);
   --input-bg: var(--vscode-input-background);
   --input-fg: var(--vscode-input-foreground);
-  --input-border: var(--vscode-input-border, transparent);
+  --input-border: color-mix(in srgb, var(--fg-color) 18%, transparent);
   --button-bg: var(--vscode-button-background);
   --button-fg: var(--vscode-button-foreground);
   --button-hover: var(--vscode-button-hoverBackground);
   --scrollbar-bg: var(--vscode-scrollbarSlider-background);
   --scrollbar-hover: var(--vscode-scrollbarSlider-hoverBackground);
+  --border-color: color-mix(in srgb, var(--fg-color) 14%, transparent);
+  --glass-bg: color-mix(in srgb, var(--vscode-sideBar-background) 78%, transparent);
 
   /* Accents */
-  --accent-color: #0078d4;
-  /* VS Code blue / Copilot-ish */
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-2: rgb(var(--accent-2-rgb));
+  --accent-glow: rgba(var(--accent-rgb), 0.22);
+  --accent-soft: rgba(var(--accent-rgb), 0.08);
   --success-color: #3fb950;
   --step-border: var(--vscode-widget-border, #454545);
+  --user-msg-bg: color-mix(in srgb, rgba(var(--accent-rgb), 0.22) 20%, var(--input-bg) 80%);
+  --user-msg-fg: var(--fg-color);
+  --assistant-msg-bg: var(--surface-1);
 }
 
 body {
-  background-color: var(--bg-color);
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(var(--accent-rgb), 0.12), transparent 55%),
+    radial-gradient(140% 120% at 100% 0%, rgba(var(--accent-2-rgb), 0.10), transparent 60%),
+    var(--bg-color);
   color: var(--fg-color);
   font-family: var(--font-family);
   font-size: var(--font-size);
@@ -44,6 +64,7 @@ body {
   max-width: 100%;
   position: relative;
   /* For overlays */
+  animation: appIn 0.35s ease;
 }
 
 /* Header & Controls */
@@ -53,8 +74,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: var(--vscode-sideBar-background);
-  height: 40px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  height: 44px;
   box-sizing: border-box;
 }
 
@@ -80,27 +102,47 @@ select {
   background: var(--vscode-dropdown-background);
   color: var(--vscode-dropdown-foreground);
   border: 1px solid var(--vscode-dropdown-border);
-  padding: 2px 4px;
-  border-radius: 3px;
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
   outline: none;
   max-width: 150px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 button {
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   color: var(--fg-color);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 3px;
+  padding: 6px;
+  border-radius: var(--radius-s);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.1em;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
 }
 
 button:hover {
   background: var(--vscode-toolbar-hoverBackground);
+  border-color: var(--border-color);
+}
+
+button:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.icon-button {
+  background: color-mix(in srgb, var(--surface-1) 60%, transparent);
+  border-color: var(--border-color);
+}
+
+.icon-button:hover {
+  background: var(--surface-2);
+  transform: translateY(-1px);
 }
 
 /* Messages Area */
@@ -111,28 +153,36 @@ button:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  scrollbar-gutter: stable;
 }
 
 .message {
   max-width: 100%;
   line-height: var(--line-height);
-  animation: fadeIn 0.3s ease;
+  animation: messageIn 0.28s ease;
+  word-break: break-word;
 }
 
 .message.user {
   align-self: flex-end;
   background: var(--user-msg-bg);
   color: var(--user-msg-fg);
-  padding: 8px 12px;
-  border-radius: 12px 12px 0 12px;
-  max-width: 90%;
+  padding: 10px 14px;
+  border-radius: 18px 18px 6px 18px;
+  max-width: 92%;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 45%, transparent);
+  box-shadow: var(--shadow-1);
 }
 
 .message.ollama {
   align-self: flex-start;
-  padding: 0;
+  padding: 12px 14px;
   width: 100%;
-  padding-right: 10px;
+  max-width: 96%;
+  background: var(--assistant-msg-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-1);
 }
 
 /* Markdown Styling */
@@ -149,17 +199,17 @@ button:hover {
 }
 
 .message code {
-  font-family: var(--vscode-editor-font-family, "Consolas", monospace);
-  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  font-family: var(--mono-font);
+  background: color-mix(in srgb, var(--bg-color) 85%, var(--fg-color) 15%);
   padding: 2px 4px;
-  border-radius: 3px;
+  border-radius: 6px;
   font-size: 0.9em;
 }
 
 .message pre {
-  background: var(--vscode-textBlockQuote-background, #1e1e1e);
-  padding: 10px;
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-color) 88%, black 12%);
+  padding: 12px;
+  border-radius: var(--radius-m);
   overflow-x: auto;
   border: 1px solid var(--border-color);
   margin: 8px 0;
@@ -171,6 +221,24 @@ button:hover {
   color: var(--vscode-textPreformat-foreground);
 }
 
+.message blockquote {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent-color);
+  background: color-mix(in srgb, var(--bg-color) 90%, var(--accent-color) 10%);
+  border-radius: var(--radius-s);
+}
+
+.message a {
+  color: var(--accent-color);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-color) 50%, transparent);
+}
+
+.message a:hover {
+  color: var(--accent-2);
+}
+
 /* History Sidebar/Overlay */
 .history-overlay {
   position: absolute;
@@ -178,17 +246,20 @@ button:hover {
   left: 0;
   bottom: 0;
   width: 250px;
-  background: var(--vscode-sideBar-background);
+  background: var(--glass-bg);
   border-right: 1px solid var(--border-color);
+  backdrop-filter: blur(10px);
   z-index: 100;
   display: flex;
   flex-direction: column;
-  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.3);
-  transition: transform 0.2s ease;
+  box-shadow: var(--shadow-2);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 1;
 }
 
 .history-overlay.hidden {
   transform: translateX(-100%);
+  opacity: 0;
 }
 
 .history-header {
@@ -209,7 +280,7 @@ button:hover {
 .history-item {
   padding: 8px;
   margin-bottom: 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   cursor: pointer;
   display: flex;
   justify-content: space-between;
@@ -254,20 +325,21 @@ button:hover {
   flex-wrap: wrap;
   gap: 4px;
   padding: 4px var(--container-padding);
-  background: var(--vscode-editor-background);
+  background: color-mix(in srgb, var(--bg-color) 85%, transparent);
   border-bottom: 1px solid var(--border-color);
   font-size: 0.85em;
   min-height: 0;
 }
 
 .pinned-file {
-  background: var(--vscode-badge-background);
+  background: color-mix(in srgb, var(--vscode-badge-background) 70%, var(--bg-color) 30%);
   color: var(--vscode-badge-foreground);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
   display: flex;
   align-items: center;
   gap: 4px;
+  border: 1px solid var(--border-color);
 }
 
 .pinned-file .remove {
@@ -282,7 +354,7 @@ button:hover {
   gap: 12px;
   padding: 10px var(--container-padding);
   border-top: 1px solid var(--border-color);
-  background: var(--vscode-editor-background);
+  background: var(--surface-0);
   color: var(--fg-color);
   font-size: 0.9em;
 }
@@ -327,10 +399,10 @@ button:hover {
 }
 
 .stop-button {
-  background: var(--vscode-button-secondaryBackground);
+  background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 75%, var(--bg-color) 25%);
   color: var(--vscode-button-secondaryForeground);
-  border-radius: 6px;
-  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  padding: 6px 10px;
   font-size: 0.95em;
 }
 
@@ -346,7 +418,8 @@ button:hover {
 /* Input Area (Bottom) */
 .input-area-container {
   padding: 12px;
-  background: var(--vscode-sideBar-background);
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
   border-top: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
@@ -357,18 +430,26 @@ textarea#chat-input {
   background: var(--input-bg);
   color: var(--input-fg);
   border: 1px solid var(--input-border);
-  padding: 10px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
   resize: none;
   font-family: inherit;
   min-height: 40px;
   max-height: 200px;
   width: 100%;
   box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 textarea#chat-input:focus {
-  outline: 1px solid var(--vscode-focusBorder);
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+textarea#chat-input::placeholder {
+  color: color-mix(in srgb, var(--input-fg) 60%, transparent);
 }
 
 .bottom-controls {
@@ -396,24 +477,27 @@ textarea#chat-input:focus {
 
 #mode-select {
   padding: 4px 8px;
-  height: 28px;
+  height: 30px;
   background-color: var(--vscode-input-background);
   border: 1px solid var(--vscode-widget-border);
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   cursor: pointer;
 }
 
 .send-button {
-  background: var(--button-bg);
+  background: linear-gradient(135deg, var(--accent-color), var(--accent-2));
   color: var(--button-fg);
-  border-radius: 6px;
-  padding: 6px 16px;
+  border-radius: 999px;
+  padding: 6px 18px;
   font-weight: bold;
-  height: 30px;
+  height: 32px;
+  border: none;
+  box-shadow: 0 6px 14px rgba(var(--accent-rgb), 0.35);
 }
 
 .send-button:hover {
-  background: var(--button-hover);
+  filter: brightness(1.05);
+  transform: translateY(-1px);
 }
 
 /* Suggestions */
@@ -421,11 +505,14 @@ textarea#chat-input:focus {
   position: absolute;
   bottom: 140px;
   left: 20px;
-  background: var(--vscode-menu-background);
+  background: var(--glass-bg);
   border: 1px solid var(--vscode-menu-border);
   z-index: 1000;
   width: 300px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(10px);
+  border-radius: var(--radius-m);
+  overflow: hidden;
 }
 
 .suggestion-item {
@@ -451,18 +538,40 @@ textarea#chat-input:focus {
   }
 }
 
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes appIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Thinking Steps / Agent Process */
 .agent-process-container {
   margin: 12px 0;
   border: 1px solid var(--step-border);
-  border-radius: 8px;
-  background: rgba(128, 128, 128, 0.03);
+  border-radius: var(--radius-m);
+  background: rgba(128, 128, 128, 0.06);
   overflow: hidden;
 }
 
 .agent-process-header {
   padding: 8px 12px;
-  background: rgba(128, 128, 128, 0.08);
+  background: rgba(128, 128, 128, 0.1);
   display: flex;
   justify-content: space-between;
   align-items: center;

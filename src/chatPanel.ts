@@ -965,12 +965,12 @@ REGRAS:
   <div id="chat-container">
     <div class="header-controls">
       <div class="left-controls">
-        <button id="new-chat-button" title="Novo Chat">+</button>
-        <button id="history-button" title="Histórico">≡</button>
+        <button id="new-chat-button" class="icon-button" title="Novo Chat">+</button>
+        <button id="history-button" class="icon-button" title="Histórico">≡</button>
       </div>
 
       <div class="window-controls">
-        <button id="settings-button" title="Configurações">⚙</button>
+        <button id="settings-button" class="icon-button" title="Configurações">⚙</button>
       </div>
     </div>
 
@@ -1008,7 +1008,7 @@ REGRAS:
         <div class="model-selector-group">
           <span class="icon-ollama" title="Ollama">O</span>
           <select id="model-select" title="Selecionar Modelo"></select>
-          <button id="refresh-models" title="Atualizar Modelos">↻</button>
+          <button id="refresh-models" class="icon-button" title="Atualizar Modelos">↻</button>
         </div>
 
         <div class="right-bottom">
