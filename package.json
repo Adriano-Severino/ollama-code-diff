@@ -157,7 +157,6 @@
   "devDependencies": {
     "@types/node": "^20.x",
     "@types/vscode": "^1.85.0",
-    "typescript": "^5.3.0",
     "vsce": "^2.0.0"
   },
   "dependencies": {
@@ -165,6 +164,7 @@
     "cross-fetch": "^4.0.0",
     "marked": "^17.0.1",
     "ollama": "^0.5.0",
+    "typescript": "^5.3.0",
     "uuid": "^13.0.0"
   }
 }
