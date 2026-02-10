@@ -40,6 +40,7 @@ const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
 const historyManager_1 = require("./historyManager");
 const logger_1 = require("./utils/logger");
+const agentToolCallParser_1 = require("./utils/agentToolCallParser");
 class ChatPanel {
     constructor(extensionUri, ollamaService, diffManager, ragService, context) {
         this.extensionUri = extensionUri;
@@ -318,19 +319,27 @@ class ChatPanel {
         const toolsDescription = `You are an autonomous AI agent capable of using tools to solve complex tasks.
 You must follow a Thought-Plan-Action cycle:
 1. Thought: Analyze the current state and what needs to be done.
-2. Plan: Outline the steps to reach the goal.
-3. Action: Choose the best tool to execute the next step.
+2. Plan: Outline the next step.
+3. Action: Choose exactly one tool call in JSON.
 
 AVAILABLE TOOLS:
-- run: Execute shell commands. tool run, args: { command: "npm test" }
-- read: Read file content. tool read, args: { filePath: "src/app.ts" }
-- write: Write/Create file. tool write, args: { filePath: "new.ts", content: "..." }
-- editcode: Edit code in active editor or entire file. tool editcode, args: { instruction: "..." }
-- listfiles: List directory contents. tool listfiles, args: { directoryPath: "." }
-- findfile: Find files by pattern. tool findfile, args: { pattern: "**/*.test.ts" }
-- searchtext: Search text in workspace (git grep). tool searchtext, args: { query: "SearchTerm" }
-- searchsemantic: RAG search. tool searchsemantic, args: { query: "How is X implemented?" }
-- openfile: Open a file in the editor. tool openfile, args: { filePath: "path/to/file" }
+- run: Execute shell commands. args: { "command": "npm test" }
+- read: Read file content. args: { "filePath": "src/app.ts" }
+- write: Write/create file. args: { "filePath": "new.ts", "content": "..." }
+- editcode: Edit code in active editor or file selection with AI. args: { "instruction": "..." }
+- listfiles: List directory contents. args: { "directoryPath": "." }
+- findfile: Find files by pattern. args: { "pattern": "**/*.test.ts" }
+- searchtext: Search text using git grep. args: { "query": "SearchTerm" }
+- searchsemantic: Semantic search (RAG). args: { "query": "How is X implemented?" }
+- openfile: Open file in editor. args: { "filePath": "path/to/file" }
+- applydiff: Apply unified diff with preview/undo. args: { "diffContent": "diff --git ..." }
+
+LSP TOOLS (semantic editor operations):
+- lsprename: Rename symbol using language server. args: { "newName": "nextName", "filePath": "src/file.ts", "line": 12, "character": 5 }
+- lsporganizeimports: Organize imports in target file. args: { "filePath": "src/file.ts" }
+- lspcodeactions: List or apply code actions from language server.
+  args: { "filePath": "src/file.ts", "kind": "quickfix", "startLine": 10, "startCharacter": 0, "endLine": 10, "endCharacter": 20, "apply": true, "titleContains": "Add missing import", "index": 0 }
+- lspquickfix: Apply preferred quick fix for a range/cursor. args: { "filePath": "src/file.ts", "startLine": 10, "startCharacter": 0, "endLine": 10, "endCharacter": 20, "titleContains": "..." }
 
 RESPONSE FORMAT:
 Thought: ...
@@ -341,10 +350,10 @@ Action:
 \`\`\`
 
 IMPORTANT:
-- Use only ONE tool per turn.
-- Always provide a JSON block for the tool call.
-- Be precise with file paths relative to workspace root.
-If you are done, respond with:
+- Use only one tool per turn.
+- Always include valid JSON for the tool call.
+- Use workspace-relative file paths.
+When the task is complete, respond with:
 Thought: I have completed the task.
 Final Answer: ...`;
         const systemPrompt = { role: 'system', content: toolsDescription };
@@ -352,6 +361,9 @@ Final Answer: ...`;
             systemPrompt,
             ...this.chatHistory.map(m => ({ role: m.role, content: m.content }))
         ];
+        if (runHistory.length > 1 && runHistory[runHistory.length - 1].role === 'user') {
+            runHistory[runHistory.length - 1] = { role: 'user', content: messageWithContext };
+        }
         let agentSteps = [];
         const updateProcessUI = (label, status = 'loading', details) => {
             const existingStep = agentSteps.find(s => s.label === label);
@@ -380,15 +392,21 @@ Final Answer: ...`;
                 // 1) Get LLM response
                 const ollamaResponse = await this.ollamaService.chat(runHistory, { signal: abort.signal });
                 // 2) Parse Thought/Plan and JSON tool call
-                let parsedResponse = null;
-                let isToolCall = false;
+                const parsedResponse = (0, agentToolCallParser_1.parseAgentToolCall)(ollamaResponse);
+                const isToolCall = parsedResponse !== null;
                 const thoughtMatch = ollamaResponse.match(/Thought:([\s\S]*?)Plan:|Thought:([\s\S]*?)Action:/i);
                 const planMatch = ollamaResponse.match(/Plan:([\s\S]*?)Action:/i);
                 if (thoughtMatch) {
                     const thought = String(thoughtMatch[1] || thoughtMatch[2] || '').trim();
                     updateProcessUI('Pensando…', 'done', thought.substring(0, 100) + (thought.length > 100 ? '…' : ''));
                 }
-                if (isToolCall) {
+                if (planMatch) {
+                    const plan = String(planMatch[1] || '').trim();
+                    if (plan) {
+                        updateProcessUI('Planejando…', 'done', plan.substring(0, 100) + (plan.length > 100 ? '…' : ''));
+                    }
+                }
+                if (isToolCall && parsedResponse) {
                     updateProcessUI(`Usando ferramenta: ${parsedResponse.tool}`, 'loading');
                     // 3) Execute tool
                     const toolResult = await this.executeTool(parsedResponse.tool, parsedResponse.args);
@@ -435,31 +453,33 @@ Final Answer: ...`;
         }
     }
     async executeTool(tool, args) {
-        switch (tool) {
+        const normalizedTool = String(tool || '').toLowerCase().trim();
+        const safeArgs = (typeof args === 'object' && args !== null) ? args : {};
+        switch (normalizedTool) {
             case 'run':
-                return await this.runCommand(args.command);
+                return await this.runCommand(safeArgs.command);
             case 'read':
-                return await this.readFile(args.filePath);
+                return await this.readFile(safeArgs.filePath);
             case 'write':
-                return await this.writeFile(args.filePath, args.content);
+                return await this.writeFile(safeArgs.filePath, safeArgs.content);
             case 'generatecode':
-                return await this.generateCode(args.prompt);
+                return await this.generateCode(safeArgs.prompt);
             case 'editcode':
-                return await this.editCode(args.instruction);
+                return await this.editCode(safeArgs.instruction);
             case 'analyzefile':
-                return await this.analyzeFile(args.filePath, args.instruction);
+                return await this.analyzeFile(safeArgs.filePath, safeArgs.instruction);
             case 'listfiles':
-                return await this.listFiles(args.directoryPath);
+                return await this.listFiles(safeArgs.directoryPath);
             case 'executevscodecommand':
-                return await this.executeVscodeCommand(args.command, args.args);
+                return await this.executeVscodeCommand(safeArgs.command, safeArgs.args);
             case 'openfile':
-                return await this.openFile(args.filePath);
+                return await this.openFile(safeArgs.filePath);
             case 'applycodechanges':
-                return await this.applyCodeChanges(args.newCode, args.startLine, args.startCharacter, args.endLine, args.endCharacter);
+                return await this.applyCodeChanges(safeArgs.newCode, safeArgs.startLine, safeArgs.startCharacter, safeArgs.endLine, safeArgs.endCharacter);
             case 'applydiff':
-                return await this.applyDiff(args.diffContent);
+                return await this.applyDiff(safeArgs.diffContent);
             case 'findfile':
-                return await this.findFile(args.pattern);
+                return await this.findFile(safeArgs.pattern);
             case 'savefile':
                 return await this.saveFile();
             case 'closefile':
@@ -467,12 +487,20 @@ Final Answer: ...`;
             case 'getselectedtext':
                 return await this.getSelectedText();
             case 'searchtext':
-                return await this.searchText(args.query);
+                return await this.searchText(safeArgs.query);
             case 'searchsemantic':
-                return await this.searchSemantic(args.query);
+                return await this.searchSemantic(safeArgs.query);
+            case 'lsprename':
+                return await this.lspRename(safeArgs);
+            case 'lsporganizeimports':
+                return await this.lspOrganizeImports(safeArgs);
+            case 'lspcodeactions':
+                return await this.lspCodeActions(safeArgs);
+            case 'lspquickfix':
+                return await this.lspQuickFix(safeArgs);
             default:
-                logger_1.Logger.error('Ferramenta desconhecida:', tool);
-                return `Ferramenta desconhecida: ${tool}`;
+                logger_1.Logger.error('Ferramenta desconhecida:', normalizedTool);
+                return `Ferramenta desconhecida: ${normalizedTool}`;
         }
     }
     async runCommand(command) {
@@ -657,6 +685,269 @@ Final Answer: ...`;
             return 'Por favor, forneça o conteúdo do diff para aplicar.';
         const result = await this.diffManager.previewAndApplyUnifiedDiff(diffContent, 'Patch do Agente');
         return result.message;
+    }
+    async lspRename(args) {
+        const newName = this.asNonEmptyString(args.newName);
+        if (!newName) {
+            return 'Uso: lsprename requer "newName".';
+        }
+        const target = await this.resolveToolDocument(args.filePath);
+        if (!target.document) {
+            return target.error;
+        }
+        const position = this.resolveToolPosition(target.document, args.line, args.character);
+        if (!position) {
+            return 'Forneca "line" e "character" ou deixe o cursor no simbolo a renomear.';
+        }
+        try {
+            const renameEdit = await vscode.commands.executeCommand('vscode.executeDocumentRenameProvider', target.document.uri, position, newName);
+            if (!renameEdit || renameEdit.size === 0) {
+                return `Rename indisponivel para ${target.relativePath} na posicao ${position.line}:${position.character}.`;
+            }
+            const applied = await vscode.workspace.applyEdit(renameEdit);
+            if (!applied) {
+                return 'Falha ao aplicar rename no workspace.';
+            }
+            const touchedFiles = this.workspaceEditFileCount(renameEdit);
+            return `Rename aplicado para "${newName}" em ${touchedFiles} arquivo(s).`;
+        }
+        catch (error) {
+            return `Erro no rename LSP: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+    async lspOrganizeImports(args) {
+        const target = await this.resolveToolDocument(args.filePath);
+        if (!target.document) {
+            return target.error;
+        }
+        try {
+            const edits = await vscode.commands.executeCommand('vscode.executeOrganizeImports', target.document.uri);
+            if (!edits || edits.length === 0) {
+                return `Nenhum import para organizar em ${target.relativePath}.`;
+            }
+            const workspaceEdit = new vscode.WorkspaceEdit();
+            workspaceEdit.set(target.document.uri, edits);
+            const applied = await vscode.workspace.applyEdit(workspaceEdit);
+            if (!applied) {
+                return 'Falha ao aplicar organize imports.';
+            }
+            return `Imports organizados em ${target.relativePath}.`;
+        }
+        catch (error) {
+            return `Erro no organize imports LSP: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+    async lspCodeActions(args) {
+        const target = await this.resolveToolDocument(args.filePath);
+        if (!target.document) {
+            return target.error;
+        }
+        const range = this.resolveToolRange(target.document, args);
+        const kind = this.asNonEmptyString(args.kind);
+        try {
+            const actions = await vscode.commands.executeCommand('vscode.executeCodeActionProvider', target.document.uri, range, kind) || [];
+            if (actions.length === 0) {
+                return `Nenhuma code action disponivel em ${target.relativePath} para o range ${this.rangeLabel(range)}${kind ? ` (kind: ${kind})` : ''}.`;
+            }
+            const index = this.asOptionalNumber(args.index);
+            const titleContains = this.asNonEmptyString(args.titleContains)?.toLowerCase();
+            const shouldApply = this.asBoolean(args.apply, false) || index !== undefined || !!titleContains;
+            if (!shouldApply) {
+                return this.describeCodeActions(actions, target.relativePath, range, kind);
+            }
+            const selected = this.selectCodeAction(actions, index, titleContains);
+            if (!selected) {
+                return 'Nao foi possivel selecionar uma code action aplicavel.';
+            }
+            const applyResult = await this.applyCodeActionEntry(selected);
+            return `${applyResult}\n${this.describeCodeActions(actions, target.relativePath, range, kind)}`;
+        }
+        catch (error) {
+            return `Erro ao consultar code actions LSP: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+    async lspQuickFix(args) {
+        const quickFixArgs = {
+            ...args,
+            kind: 'quickfix',
+            apply: true
+        };
+        return await this.lspCodeActions(quickFixArgs);
+    }
+    async applyCodeActionEntry(entry) {
+        try {
+            if (this.isCodeAction(entry)) {
+                if (entry.disabled) {
+                    return `Code action desabilitada: ${entry.title} (${entry.disabled.reason}).`;
+                }
+                if (entry.edit) {
+                    const appliedEdit = await vscode.workspace.applyEdit(entry.edit);
+                    if (!appliedEdit) {
+                        return `Falha ao aplicar edicoes da code action: ${entry.title}.`;
+                    }
+                }
+                if (entry.command) {
+                    await vscode.commands.executeCommand(entry.command.command, ...(entry.command.arguments || []));
+                }
+                return `Code action aplicada: ${entry.title}.`;
+            }
+            await vscode.commands.executeCommand(entry.command, ...(entry.arguments || []));
+            return `Comando de code action executado: ${entry.title}.`;
+        }
+        catch (error) {
+            return `Erro ao aplicar code action: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+    selectCodeAction(actions, index, titleContains) {
+        const normalizedIndex = index !== undefined ? Math.floor(index) : undefined;
+        if (normalizedIndex !== undefined && normalizedIndex >= 0 && normalizedIndex < actions.length) {
+            return actions[normalizedIndex];
+        }
+        if (titleContains) {
+            const byTitle = actions.find(action => action.title.toLowerCase().includes(titleContains));
+            if (byTitle) {
+                return byTitle;
+            }
+        }
+        const preferred = actions.find(action => this.isCodeAction(action) && action.isPreferred && !action.disabled);
+        if (preferred) {
+            return preferred;
+        }
+        const enabled = actions.find(action => !this.isCodeAction(action) || !action.disabled);
+        return enabled ?? actions[0];
+    }
+    describeCodeActions(actions, relativePath, range, kind) {
+        const lines = actions.slice(0, 20).map((action, index) => {
+            const typeLabel = this.isCodeAction(action)
+                ? (action.kind?.value || 'codeaction')
+                : 'command';
+            const preferred = this.isCodeAction(action) && action.isPreferred ? ' preferred' : '';
+            const disabled = this.isCodeAction(action) && action.disabled ? ` disabled(${action.disabled.reason})` : '';
+            return `[${index}] ${action.title} [${typeLabel}${preferred}]${disabled}`;
+        });
+        const suffix = actions.length > 20 ? `\n... +${actions.length - 20} action(s)` : '';
+        return `Code actions em ${relativePath} ${this.rangeLabel(range)}${kind ? ` (kind: ${kind})` : ''}:\n${lines.join('\n')}${suffix}`;
+    }
+    async resolveToolDocument(filePathValue) {
+        const activeEditor = vscode.window.activeTextEditor;
+        const filePath = this.asNonEmptyString(filePathValue);
+        if (!filePath) {
+            if (!activeEditor) {
+                return { relativePath: '', error: 'Nenhum editor ativo. Forneca "filePath" ou abra um arquivo.' };
+            }
+            return {
+                document: activeEditor.document,
+                relativePath: vscode.workspace.asRelativePath(activeEditor.document.uri, false),
+                error: ''
+            };
+        }
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return { relativePath: filePath, error: 'Nenhum workspace aberto.' };
+        }
+        const absolutePath = path.resolve(workspaceFolder.uri.fsPath, filePath);
+        if (!this.isPathInsideRoot(workspaceFolder.uri.fsPath, absolutePath)) {
+            return { relativePath: filePath, error: `Caminho fora do workspace: ${filePath}` };
+        }
+        try {
+            const document = await vscode.workspace.openTextDocument(absolutePath);
+            return {
+                document,
+                relativePath: vscode.workspace.asRelativePath(document.uri, false),
+                error: ''
+            };
+        }
+        catch (error) {
+            return {
+                relativePath: filePath,
+                error: `Erro ao abrir arquivo ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+            };
+        }
+    }
+    resolveToolPosition(document, lineValue, characterValue) {
+        const parsedLine = this.asOptionalNumber(lineValue);
+        const parsedCharacter = this.asOptionalNumber(characterValue);
+        if (parsedLine !== undefined && parsedCharacter !== undefined) {
+            return this.clampPosition(document, parsedLine, parsedCharacter);
+        }
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor && activeEditor.document.uri.toString() === document.uri.toString()) {
+            return activeEditor.selection.active;
+        }
+        return undefined;
+    }
+    resolveToolRange(document, args) {
+        const startLine = this.asOptionalNumber(args.startLine);
+        const startCharacter = this.asOptionalNumber(args.startCharacter);
+        const endLine = this.asOptionalNumber(args.endLine);
+        const endCharacter = this.asOptionalNumber(args.endCharacter);
+        if (startLine !== undefined && startCharacter !== undefined && endLine !== undefined && endCharacter !== undefined) {
+            const start = this.clampPosition(document, startLine, startCharacter);
+            const end = this.clampPosition(document, endLine, endCharacter);
+            return start.isBeforeOrEqual(end) ? new vscode.Range(start, end) : new vscode.Range(end, start);
+        }
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor && activeEditor.document.uri.toString() === document.uri.toString()) {
+            const selection = activeEditor.selection;
+            return new vscode.Range(selection.start, selection.end);
+        }
+        return new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+    }
+    clampPosition(document, lineValue, characterValue) {
+        const maxLine = Math.max(document.lineCount - 1, 0);
+        const line = Math.min(Math.max(Math.floor(lineValue), 0), maxLine);
+        const lineLength = document.lineAt(line).text.length;
+        const character = Math.min(Math.max(Math.floor(characterValue), 0), lineLength);
+        return new vscode.Position(line, character);
+    }
+    rangeLabel(range) {
+        return `[${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}]`;
+    }
+    workspaceEditFileCount(edit) {
+        const entries = edit.entries();
+        if (entries.length > 0) {
+            return entries.length;
+        }
+        return edit.size;
+    }
+    isCodeAction(entry) {
+        return 'kind' in entry || 'edit' in entry || 'isPreferred' in entry || 'disabled' in entry;
+    }
+    asNonEmptyString(value) {
+        if (typeof value !== 'string') {
+            return undefined;
+        }
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+    }
+    asOptionalNumber(value) {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+        }
+        if (typeof value === 'string' && value.trim()) {
+            const parsed = Number(value);
+            if (Number.isFinite(parsed)) {
+                return parsed;
+            }
+        }
+        return undefined;
+    }
+    asBoolean(value, defaultValue) {
+        if (typeof value === 'boolean') {
+            return value;
+        }
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            if (normalized === 'true')
+                return true;
+            if (normalized === 'false')
+                return false;
+        }
+        return defaultValue;
+    }
+    isPathInsideRoot(rootPath, targetPath) {
+        const relative = path.relative(path.resolve(rootPath), path.resolve(targetPath));
+        return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
     }
     async findFile(pattern) {
         if (!pattern)

@@ -24,6 +24,10 @@
     "onCommand:ollama-code-diff.undoLastAppliedChanges",
     "onCommand:ollama-code-diff.showMenu",
     "onCommand:ollama-code-diff.validateConfig",
+    "onCommand:ollama-code-diff.lspRenameSymbol",
+    "onCommand:ollama-code-diff.lspOrganizeImports",
+    "onCommand:ollama-code-diff.lspCodeActions",
+    "onCommand:ollama-code-diff.lspQuickFix",
     "onView:ollama-code-diff.chatView"
   ],
   "main": "./out/extension.js",
@@ -31,7 +35,7 @@
     "commands": [
       {
         "command": "ollama-code-diff.generateCode",
-         "title": "Gerar CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³digo com Ollama"
+        "title": "Gerar CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³digo com Ollama"
       },
       {
         "command": "ollama-code-diff.editCode",
@@ -65,6 +69,22 @@
       {
         "command": "ollama-code-diff.validateConfig",
         "title": "Validar ConfiguraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o do Ollama"
+      },
+      {
+        "command": "ollama-code-diff.lspRenameSymbol",
+        "title": "LSP: Rename Symbol"
+      },
+      {
+        "command": "ollama-code-diff.lspOrganizeImports",
+        "title": "LSP: Organize Imports"
+      },
+      {
+        "command": "ollama-code-diff.lspCodeActions",
+        "title": "LSP: Show Code Actions"
+      },
+      {
+        "command": "ollama-code-diff.lspQuickFix",
+        "title": "LSP: Quick Fix"
       }
     ],
     "keybindings": [

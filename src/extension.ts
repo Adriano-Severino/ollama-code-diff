@@ -100,6 +100,34 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
 
+    const lspRenameSymbolCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.lspRenameSymbol',
+        async () => {
+            await runEditorLspCommand('editor.action.rename');
+        }
+    );
+
+    const lspOrganizeImportsCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.lspOrganizeImports',
+        async () => {
+            await runEditorLspCommand('editor.action.organizeImports');
+        }
+    );
+
+    const lspCodeActionsCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.lspCodeActions',
+        async () => {
+            await runEditorLspCommand('editor.action.codeAction');
+        }
+    );
+
+    const lspQuickFixCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.lspQuickFix',
+        async () => {
+            await runEditorLspCommand('editor.action.quickFix');
+        }
+    );
+
     context.subscriptions.push(
         statusBarButton,
         showMenuCommand,
@@ -110,7 +138,11 @@ export function activate(context: vscode.ExtensionContext) {
         analyzeMultipleFilesCommand,
         showDiffCommand,
         undoLastAppliedChangesCommand,
-        validateConfigCommand
+        validateConfigCommand,
+        lspRenameSymbolCommand,
+        lspOrganizeImportsCommand,
+        lspCodeActionsCommand,
+        lspQuickFixCommand
     );
 
     // Register Quick Fix Provider
@@ -271,6 +303,19 @@ async function runWithCancelableProgress<T>(
             }
         }
     );
+}
+
+async function runEditorLspCommand(command: string): Promise<void> {
+    if (!vscode.window.activeTextEditor) {
+        vscode.window.showWarningMessage('Abra um arquivo para executar esta ação LSP.');
+        return;
+    }
+
+    try {
+        await vscode.commands.executeCommand(command);
+    } catch (error) {
+        vscode.window.showErrorMessage(`Falha ao executar ação LSP: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 /**

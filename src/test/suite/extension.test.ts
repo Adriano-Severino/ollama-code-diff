@@ -23,6 +23,10 @@ suite('Extension Integration', () => {
       'ollama-code-diff.undoLastAppliedChanges',
       'ollama-code-diff.showMenu',
       'ollama-code-diff.validateConfig',
+      'ollama-code-diff.lspRenameSymbol',
+      'ollama-code-diff.lspOrganizeImports',
+      'ollama-code-diff.lspCodeActions',
+      'ollama-code-diff.lspQuickFix',
       'ollama-code-diff.fixDiagnostic',
       'ollama-code-diff.indexCodebase',
       'ollama-code-diff.semanticSearch'

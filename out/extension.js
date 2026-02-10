@@ -88,7 +88,19 @@ function activate(context) {
     const validateConfigCommand = vscode.commands.registerCommand('ollama-code-diff.validateConfig', async () => {
         await validateOllamaConfig(ollamaService, { showSuccess: true });
     });
-    context.subscriptions.push(statusBarButton, showMenuCommand, generateCodeCommand, editCodeCommand, analyzeFileCommand, analyzeProjectCommand, analyzeMultipleFilesCommand, showDiffCommand, undoLastAppliedChangesCommand, validateConfigCommand);
+    const lspRenameSymbolCommand = vscode.commands.registerCommand('ollama-code-diff.lspRenameSymbol', async () => {
+        await runEditorLspCommand('editor.action.rename');
+    });
+    const lspOrganizeImportsCommand = vscode.commands.registerCommand('ollama-code-diff.lspOrganizeImports', async () => {
+        await runEditorLspCommand('editor.action.organizeImports');
+    });
+    const lspCodeActionsCommand = vscode.commands.registerCommand('ollama-code-diff.lspCodeActions', async () => {
+        await runEditorLspCommand('editor.action.codeAction');
+    });
+    const lspQuickFixCommand = vscode.commands.registerCommand('ollama-code-diff.lspQuickFix', async () => {
+        await runEditorLspCommand('editor.action.quickFix');
+    });
+    context.subscriptions.push(statusBarButton, showMenuCommand, generateCodeCommand, editCodeCommand, analyzeFileCommand, analyzeProjectCommand, analyzeMultipleFilesCommand, showDiffCommand, undoLastAppliedChangesCommand, validateConfigCommand, lspRenameSymbolCommand, lspOrganizeImportsCommand, lspCodeActionsCommand, lspQuickFixCommand);
     // Register Quick Fix Provider
     const quickFixProvider = new quickFixProvider_1.OllamaQuickFixProvider(ollamaService);
     context.subscriptions.push(vscode.languages.registerCodeActionsProvider({ pattern: '**' }, quickFixProvider));
@@ -197,6 +209,18 @@ async function runWithCancelableProgress(title, task) {
             sub.dispose();
         }
     });
+}
+async function runEditorLspCommand(command) {
+    if (!vscode.window.activeTextEditor) {
+        vscode.window.showWarningMessage('Abra um arquivo para executar esta ação LSP.');
+        return;
+    }
+    try {
+        await vscode.commands.executeCommand(command);
+    }
+    catch (error) {
+        vscode.window.showErrorMessage(`Falha ao executar ação LSP: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 /**
  * Flexible model name matching - handles cases like:
