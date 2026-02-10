@@ -377,9 +377,11 @@ class ChatPanel {
             return;
         const abort = this.resetAbortController();
         this.startGenerationUI('Agent Mode…', 'Resolvendo contexto…');
-        const maxSteps = 15;
+        const maxSteps = this.getAgentMaxStepsConfig();
         let currentStep = 0;
         let shouldContinue = true;
+        let completedWithinLimit = false;
+        let lastAssistantTurn = '';
         const messageWithContext = await this.resolveMessageContext(userMessage);
         const toolsDescription = `You are an autonomous AI agent capable of using tools to solve complex tasks.
 You must follow a Thought-Plan-Action cycle:
@@ -418,6 +420,7 @@ IMPORTANT:
 - Use only one tool per turn.
 - Always include valid JSON for the tool call.
 - Use workspace-relative file paths.
+- If enough information is available, stop tool usage and provide Final Answer immediately.
 When the task is complete, respond with:
 Thought: I have completed the task.
 Final Answer: ...`;
@@ -456,6 +459,7 @@ Final Answer: ...`;
                 this.updateGenerationUI(`Agent step ${currentStep}/${maxSteps}…`);
                 // 1) Get LLM response
                 const ollamaResponse = await this.ollamaService.chat(runHistory, { signal: abort.signal });
+                lastAssistantTurn = ollamaResponse;
                 // 2) Parse Thought/Plan and JSON tool call
                 const parsedResponse = (0, agentToolCallParser_1.parseAgentToolCall)(ollamaResponse);
                 const isToolCall = parsedResponse !== null;
@@ -489,16 +493,26 @@ Final Answer: ...`;
                 }
                 else {
                     shouldContinue = false;
+                    completedWithinLimit = true;
                     updateProcessUI('Tarefa concluída', 'done');
-                    const finalAnswerMatch = ollamaResponse.match(/Final Answer:([\s\S]*)/i);
-                    const finalResponse = finalAnswerMatch ? finalAnswerMatch[1].trim() : ollamaResponse;
+                    const finalResponse = this.extractFinalAnswer(ollamaResponse)
+                        || 'Tarefa concluida, mas o modelo nao retornou uma resposta final detalhada.';
                     this.view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: finalResponse });
                     this.chatHistory.push({ role: 'assistant', content: finalResponse });
                     await this.saveCurrentSession();
                 }
             }
-            if (currentStep >= maxSteps)
-                updateProcessUI('Limite de passos atingido', 'error');
+            if (!completedWithinLimit && currentStep >= maxSteps && !abort.signal.aborted) {
+                updateProcessUI('Limite de passos atingido', 'error', `Atingido limite de ${maxSteps} passos.`);
+                this.updateGenerationUI('Gerando resposta final apos limite de passos…');
+                const fallbackFinalAnswer = await this.generateAgentFinalAnswer(runHistory, maxSteps, abort.signal);
+                const finalResponse = fallbackFinalAnswer
+                    || this.extractFinalAnswer(lastAssistantTurn)
+                    || `Nao foi possivel concluir dentro do limite de ${maxSteps} passos. Tente uma tarefa mais especifica ou aumente "ollama-code-diff.agentMaxSteps".`;
+                this.view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: finalResponse });
+                this.chatHistory.push({ role: 'assistant', content: finalResponse });
+                await this.saveCurrentSession();
+            }
         }
         catch (error) {
             if (this.isTimeoutError(error)) {
@@ -1202,6 +1216,42 @@ Final Answer: ...`;
             return fallback;
         }
         return Math.max(minimum, Math.floor(value));
+    }
+    getAgentMaxStepsConfig() {
+        const config = vscode.workspace.getConfiguration('ollama-code-diff');
+        return this.normalizePositiveInt(config.get('agentMaxSteps', 15), 15, 1);
+    }
+    extractFinalAnswer(response) {
+        const rawResponse = String(response || '').trim();
+        if (!rawResponse) {
+            return '';
+        }
+        const finalAnswerMatch = rawResponse.match(/Final Answer:([\s\S]*)/i);
+        if (finalAnswerMatch) {
+            const extracted = String(finalAnswerMatch[1] || '').trim();
+            if (extracted) {
+                return extracted;
+            }
+        }
+        return rawResponse;
+    }
+    async generateAgentFinalAnswer(runHistory, maxSteps, signal) {
+        const forcedFinalPrompt = {
+            role: 'user',
+            content: `You reached the tool execution limit (${maxSteps} steps).
+Do not call any tool and do not output JSON.
+Respond with:
+Final Answer: <concise plain-text summary with what was done, what remains, and the next safest step>.`
+        };
+        try {
+            const response = await this.ollamaService.chat([...runHistory, forcedFinalPrompt], { signal });
+            const finalAnswer = this.extractFinalAnswer(response).trim();
+            return finalAnswer || undefined;
+        }
+        catch (error) {
+            logger_1.Logger.warn('[Agent] Falha ao gerar resposta final apos limite de passos.', error);
+            return undefined;
+        }
     }
     getContextWindowConfig() {
         const config = vscode.workspace.getConfiguration('ollama-code-diff');

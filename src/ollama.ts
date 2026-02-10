@@ -7,6 +7,7 @@ import { Logger } from './utils/logger';
 import { LruCache } from './utils/lruCache';
 
 type AbortableOpts = { signal?: AbortSignal };
+type TimeoutControl = { signal?: AbortSignal; refresh: () => void; dispose: () => void };
 
 export class OllamaService {
   private ollama: Ollama;
@@ -75,9 +76,17 @@ export class OllamaService {
     return Math.max(0, timeoutMs);
   }
 
-  private withTimeout(signal?: AbortSignal, timeoutMs?: number): { signal?: AbortSignal; dispose: () => void } {
+  private withTimeout(
+    signal?: AbortSignal,
+    timeoutMs?: number,
+    options: { startOnCreate?: boolean } = {}
+  ): TimeoutControl {
     if (!timeoutMs || timeoutMs <= 0) {
-      return { signal, dispose: () => { } };
+      return {
+        signal,
+        refresh: () => { },
+        dispose: () => { }
+      };
     }
 
     const controller = new AbortController();
@@ -91,23 +100,37 @@ export class OllamaService {
       }
     }
 
-    const timer = setTimeout(() => {
-      const timeoutError = new Error(`Timeout de ${timeoutMs}ms atingido`);
-      (timeoutError as any).name = 'TimeoutError';
-      try {
-        (controller as any).abort?.(timeoutError);
-      } catch {
-        controller.abort();
+    let timer: NodeJS.Timeout | undefined;
+
+    const refresh = () => {
+      if (timer) {
+        clearTimeout(timer);
       }
-      Logger.warn(`Timeout de ${timeoutMs}ms atingido.`);
-    }, timeoutMs);
+
+      timer = setTimeout(() => {
+        const timeoutError = new Error(`Timeout de inatividade (${timeoutMs}ms) atingido`);
+        (timeoutError as any).name = 'TimeoutError';
+        try {
+          (controller as any).abort?.(timeoutError);
+        } catch {
+          controller.abort();
+        }
+        Logger.warn(`Timeout de inatividade (${timeoutMs}ms) atingido.`);
+      }, timeoutMs);
+    };
+
+    if (options.startOnCreate !== false) {
+      refresh();
+    }
 
     const dispose = () => {
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       if (signal) signal.removeEventListener('abort', onAbort);
     };
 
-    return { signal: controller.signal, dispose };
+    return { signal: controller.signal, refresh, dispose };
   }
 
   private cacheKey(kind: string, model: string, prompt: string, options: unknown = {}): string {
@@ -175,7 +198,7 @@ export class OllamaService {
     const maxTokens = config.get<number>('maxTokens', 8192);
 
     const timeoutMs = this.getRequestTimeoutMs();
-    const { signal, dispose } = this.withTimeout(opts.signal, timeoutMs);
+    const { signal, refresh, dispose } = this.withTimeout(opts.signal, timeoutMs, { startOnCreate: false });
     const detach = this.attachAbort(signal);
 
     try {
@@ -186,7 +209,7 @@ export class OllamaService {
       const req: any = {
         model,
         prompt,
-        stream: false,
+        stream: true,
         options: {
           temperature: 0.7,
           top_p: 0.9,
@@ -201,11 +224,20 @@ export class OllamaService {
       if (signal) req.signal = signal;
 
       const response = await (this.ollama as any).generate(req);
+      let fullResponse = '';
+      for await (const part of response) {
+        this.throwIfAborted(signal);
+        refresh();
+        const chunk = typeof part?.response === 'string' ? part.response : '';
+        if (chunk) {
+          fullResponse += chunk;
+        }
+      }
 
       const t1 = performance.now();
       Logger.debug(`Ollama gerou código em: ${(t1 - t0) / 1000} segundos`);
 
-      return this.cleanCodeResponse(response.response);
+      return this.cleanCodeResponse(fullResponse);
     } catch (error) {
       Logger.error('Erro ao comunicar com Ollama:', error);
       throw new Error(`Falha na comunicação com Ollama: ${error}`);
@@ -222,7 +254,7 @@ export class OllamaService {
     const maxTokens = config.get<number>('maxTokens', 8192);
 
     const timeoutMs = this.getRequestTimeoutMs();
-    const { signal, dispose } = this.withTimeout(opts.signal, timeoutMs);
+    const { signal, refresh, dispose } = this.withTimeout(opts.signal, timeoutMs, { startOnCreate: false });
     const detach = this.attachAbort(signal);
 
     try {
@@ -248,7 +280,11 @@ export class OllamaService {
 
       for await (const part of response) {
         this.throwIfAborted(signal);
-        yield part.response;
+        refresh();
+        const chunk = typeof part?.response === 'string' ? part.response : '';
+        if (chunk) {
+          yield chunk;
+        }
       }
     } catch (error) {
       Logger.error('Erro no stream do Ollama:', error);
@@ -878,7 +914,7 @@ Create a comprehensive final analysis: [/INST]`;
     const maxTokens = config.get<number>('maxTokens', 8192);
 
     const timeoutMs = this.getRequestTimeoutMs();
-    const { signal, dispose } = this.withTimeout(opts.signal, timeoutMs);
+    const { signal, refresh, dispose } = this.withTimeout(opts.signal, timeoutMs, { startOnCreate: false });
     const detach = this.attachAbort(signal);
 
     const messages = [...history, { role: 'user', content: message }];
@@ -905,7 +941,11 @@ Create a comprehensive final analysis: [/INST]`;
 
       for await (const part of response) {
         this.throwIfAborted(signal);
-        yield part.message.content;
+        refresh();
+        const chunk = typeof part?.message?.content === 'string' ? part.message.content : '';
+        if (chunk) {
+          yield chunk;
+        }
       }
     } catch (error) {
       Logger.error('Erro no stream do chat Ollama:', error);
@@ -917,7 +957,8 @@ Create a comprehensive final analysis: [/INST]`;
   }
 
   /**
-   * Non-stream chat (supports AbortSignal)
+   * Chat with aggregated stream chunks (supports AbortSignal).
+   * Timeout is evaluated by inactivity between chunks.
    */
   async chat(messages: Array<{ role: string; content: string }>, opts: AbortableOpts = {}): Promise<string> {
     const config = vscode.workspace.getConfiguration('ollama-code-diff');
@@ -926,7 +967,7 @@ Create a comprehensive final analysis: [/INST]`;
     const maxTokens = config.get<number>('maxTokens', 8192);
 
     const timeoutMs = this.getRequestTimeoutMs();
-    const { signal, dispose } = this.withTimeout(opts.signal, timeoutMs);
+    const { signal, refresh, dispose } = this.withTimeout(opts.signal, timeoutMs, { startOnCreate: false });
     const detach = this.attachAbort(signal);
 
     try {
@@ -935,7 +976,7 @@ Create a comprehensive final analysis: [/INST]`;
       const req: any = {
         model,
         messages,
-        stream: false,
+        stream: true,
         options: {
           temperature: 0.7,
           top_p: 0.9,
@@ -948,7 +989,17 @@ Create a comprehensive final analysis: [/INST]`;
       if (signal) req.signal = signal;
 
       const response = await (this.ollama as any).chat(req);
-      return response.message.content;
+      let fullResponse = '';
+      for await (const part of response) {
+        this.throwIfAborted(signal);
+        refresh();
+        const chunk = typeof part?.message?.content === 'string' ? part.message.content : '';
+        if (chunk) {
+          fullResponse += chunk;
+        }
+      }
+
+      return fullResponse;
     } catch (error) {
       Logger.error('Erro no chat raw do Ollama:', error);
       throw error;
