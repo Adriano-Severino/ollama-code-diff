@@ -23,6 +23,13 @@ const historyOverlay = document.getElementById('history-overlay');
 const closeHistoryButton = document.getElementById('close-history');
 const historyList = document.getElementById('history-list');
 
+const INPUT_PLACEHOLDER_BY_MODE = {
+  chat: 'Pergunte algo ou digite /explain, /fix, /test, /refactor...',
+  agent: 'Descreva uma tarefa para o Agent (planejar + executar)...',
+  edit: 'Descreva a edicao em linguagem natural para gerar um patch aplicavel...',
+  plan: 'Descreva um plano ou estrategia...'
+};
+
 let availableFiles = [];
 let isProcessing = false;
 let processingStartTime = null;
@@ -147,6 +154,7 @@ if (chatInput) {
 if (modeSelect) {
   modeSelect.addEventListener('change', () => {
     vscode.postMessage({ command: 'changeMode', mode: modeSelect.value });
+    updateInputPlaceholder();
   });
 }
 
@@ -215,6 +223,11 @@ function sendMessage() {
 
   chatInput.value = '';
   chatInput.style.height = 'auto';
+}
+
+function updateInputPlaceholder() {
+  if (!chatInput || !modeSelect) return;
+  chatInput.placeholder = INPUT_PLACEHOLDER_BY_MODE[modeSelect.value] || INPUT_PLACEHOLDER_BY_MODE.chat;
 }
 
 function showSuggestions(query) {
@@ -536,3 +549,4 @@ window.addEventListener('message', event => {
 // Initial requests
 vscode.postMessage({ command: 'requestModels' });
 vscode.postMessage({ command: 'requestCurrentModel' });
+updateInputPlaceholder();

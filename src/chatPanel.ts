@@ -9,6 +9,7 @@ import { RAGService } from './services/ragService';
 import { HistoryManager } from './historyManager';
 import { Logger } from './utils/logger';
 import { parseAgentToolCall } from './utils/agentToolCallParser';
+import { parseUnifiedDiff, sanitizeUnifiedDiff } from './utils/unifiedDiff';
 
 type ChatMsg = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -17,7 +18,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
 
   private view?: vscode.WebviewView;
   private chatHistory: Array<{ role: string; content: string }> = [];
-  private currentMode: 'chat' | 'agent' | 'plan' = 'chat';
+  private currentMode: 'chat' | 'agent' | 'edit' | 'plan' = 'chat';
   private pinnedFiles: Set<string> = new Set();
   private historyManager: HistoryManager;
   private currentSessionId: string | undefined;
@@ -73,6 +74,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
           this.view?.webview.postMessage({ type: 'addMessage', sender: 'user', text: userMessage });
 
           if (mode === 'agent') await this.handleAgentMessage(userMessage);
+          else if (mode === 'edit') await this.handleEditMessage(userMessage);
           else await this.handleChatMessage(userMessage);
           break;
         }
@@ -328,6 +330,72 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         const errorMessage = `Erro: ${error instanceof Error ? error.message : String(error)}`;
         this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
         vscode.window.showErrorMessage(`Erro no chat: ${errorMessage}`);
+      }
+    } finally {
+      this.endGenerationUI();
+      this.currentAbort = undefined;
+    }
+  }
+
+  private async handleEditMessage(userMessage: string) {
+    if (!this.view) return;
+
+    const abort = this.resetAbortController();
+    this.startGenerationUI('Edit Mode...', 'Preparando contexto para patch...');
+
+    try {
+      await this.saveCurrentSession();
+
+      this.view.webview.postMessage({
+        type: 'addMessage',
+        sender: 'ollama',
+        text: 'Gerando patch aplicavel em formato unified diff...'
+      });
+
+      const messageWithContext = await this.resolveMessageContext(userMessage);
+      const patchPrompt = this.buildEditPatchPrompt(messageWithContext);
+
+      this.updateGenerationUI('Gerando patch unified diff...');
+      const rawModelResponse = await this.ollamaService.generateCode(patchPrompt, { signal: abort.signal });
+      const diffContent = this.extractUnifiedDiffContent(rawModelResponse);
+
+      if (diffContent === '') {
+        const noChangeMessage = 'Nenhuma mudanca necessaria para a instrucao informada.';
+        this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: noChangeMessage });
+        this.chatHistory.push({ role: 'assistant', content: noChangeMessage });
+        await this.saveCurrentSession();
+        return;
+      }
+
+      if (!diffContent) {
+        throw new Error('Nao foi possivel extrair um unified diff da resposta do modelo.');
+      }
+
+      try {
+        parseUnifiedDiff(diffContent);
+      } catch (error) {
+        throw new Error(`Patch gerado invalido: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      this.updateGenerationUI('Abrindo preview e aplicando patch...');
+      const applyResult = await this.diffManager.previewAndApplyUnifiedDiff(diffContent, 'Patch do Modo Edit');
+
+      const assistantMessage = applyResult.applied
+        ? `Patch gerado e aplicado (${applyResult.changedFiles} arquivo(s)).\n${applyResult.message}`
+        : `Patch gerado, mas nao aplicado.\n${applyResult.message}`;
+
+      this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: assistantMessage });
+      this.chatHistory.push({ role: 'assistant', content: assistantMessage });
+      await this.saveCurrentSession();
+    } catch (error) {
+      if (this.isTimeoutError(error)) {
+        this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: 'Tempo limite atingido.' });
+      } else if (this.isAbortError(error)) {
+        this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: 'Geracao cancelada.' });
+      } else {
+        const errorMessage = `Erro no modo Edit: ${error instanceof Error ? error.message : String(error)}`;
+        this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
+        vscode.window.showErrorMessage(errorMessage);
       }
     } finally {
       this.endGenerationUI();
@@ -1321,6 +1389,93 @@ REGRAS:
 `;
   }
 
+  private buildEditPatchPrompt(userMessageWithContext: string): string {
+    const activeEditorContext = this.getActiveEditorPatchContext();
+    return `You are a senior software engineer specialized in code editing.
+Your task is to convert the user request into an APPLYABLE unified git diff patch.
+
+STRICT OUTPUT RULES:
+- Return ONLY the unified diff patch text.
+- Do NOT add markdown fences.
+- Do NOT add explanations.
+- The patch must start with "diff --git".
+- Use workspace-relative paths (example: src/app.ts).
+- For new files use /dev/null correctly.
+- For deleted files use /dev/null correctly.
+- If no change is needed, return exactly: NO_CHANGES
+
+USER INSTRUCTION + CONTEXT:
+${userMessageWithContext}
+
+ACTIVE EDITOR CONTEXT:
+${activeEditorContext}
+`;
+  }
+
+  private getActiveEditorPatchContext(): string {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      return 'No active editor.';
+    }
+
+    const relativePath = vscode.workspace.asRelativePath(editor.document.uri, false);
+    const language = editor.document.languageId;
+    const selection = editor.selection;
+    const hasSelection = !selection.isEmpty;
+    const selectedText = hasSelection ? editor.document.getText(selection) : '';
+    const fullFileText = editor.document.getText();
+
+    const maxChars = 20000;
+    const normalizedFileText = fullFileText.length > maxChars
+      ? `${fullFileText.slice(0, maxChars)}\n... [truncated after ${maxChars} chars]`
+      : fullFileText;
+
+    const selectionDescription = hasSelection
+      ? `${selection.start.line}:${selection.start.character}-${selection.end.line}:${selection.end.character}`
+      : 'none';
+
+    return `Active file: ${relativePath}
+Language: ${language}
+Selected range: ${selectionDescription}
+Selected text:
+\`\`\`${language}
+${selectedText}
+\`\`\`
+
+Current file content:
+\`\`\`${language}
+${normalizedFileText}
+\`\`\``;
+  }
+
+  private extractUnifiedDiffContent(modelResponse: string): string | undefined {
+    const rawResponse = String(modelResponse || '').trim();
+    if (!rawResponse) {
+      return undefined;
+    }
+
+    if (/^NO_CHANGES$/i.test(rawResponse)) {
+      return '';
+    }
+
+    const sanitized = sanitizeUnifiedDiff(rawResponse);
+    if (/^NO_CHANGES$/i.test(sanitized)) {
+      return '';
+    }
+
+    const diffStartIndex = sanitized.indexOf('diff --git ');
+    if (diffStartIndex >= 0) {
+      return sanitized.slice(diffStartIndex).trim();
+    }
+
+    const rawDiffStartIndex = rawResponse.indexOf('diff --git ');
+    if (rawDiffStartIndex >= 0) {
+      return rawResponse.slice(rawDiffStartIndex).trim();
+    }
+
+    return undefined;
+  }
+
   private getHtmlForWebview(webview: vscode.Webview): string {
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'chat.css'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'chat.js'));
@@ -1391,6 +1546,7 @@ REGRAS:
           <select id="mode-select" title="Modo de Operação">
             <option value="chat">Chat</option>
             <option value="agent">Agent</option>
+            <option value="edit">Edit</option>
             <option value="plan">Plan</option>
           </select>
 
