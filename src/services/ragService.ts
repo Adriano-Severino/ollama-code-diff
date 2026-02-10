@@ -74,6 +74,10 @@ export class RAGService {
         }
     }
 
+    public hasIndex(): boolean {
+        return this.vectors.length > 0;
+    }
+
     public async indexWorkspace() {
         if (this.isIndexing) {
             vscode.window.showWarningMessage('Indexação já em andamento.');

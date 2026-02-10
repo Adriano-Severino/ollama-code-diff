@@ -127,7 +127,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
           break;
 
         case 'openSettings':
-          vscode.commands.executeCommand('workbench.action.openSettings', 'extadriano-severino.ollama-code-diff');
+          await vscode.commands.executeCommand('ollama-code-diff.showConfigurationMenu');
           break;
 
         case 'changeMode':

@@ -40,7 +40,14 @@ export function activate(context: vscode.ExtensionContext) {
     const showMenuCommand = vscode.commands.registerCommand(
         'ollama-code-diff.showMenu',
         async () => {
-            await showOllamaMenu(ollamaService, diffManager, chatPanel); // Pass chatPanel instance
+            await showOllamaMenu(ollamaService, diffManager, chatPanel, ragService); // Pass chatPanel instance
+        }
+    );
+
+    const showConfigurationMenuCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.showConfigurationMenu',
+        async () => {
+            await showConfigurationMenu(ragService);
         }
     );
 
@@ -131,6 +138,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         statusBarButton,
         showMenuCommand,
+        showConfigurationMenuCommand,
         generateCodeCommand,
         editCodeCommand,
         analyzeFileCommand,
@@ -417,7 +425,12 @@ async function validateOllamaConfig(
     }
 }
 
-async function showOllamaMenu(ollamaService: OllamaService, diffManager: DiffManager, chatPanel: ChatPanel) {
+async function showOllamaMenu(
+    ollamaService: OllamaService,
+    diffManager: DiffManager,
+    chatPanel: ChatPanel,
+    ragService: RAGService
+) {
     const editor = vscode.window.activeTextEditor;
     const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
 
@@ -496,7 +509,7 @@ async function showOllamaMenu(ollamaService: OllamaService, diffManager: DiffMan
             await handleAnalyzeMultipleFiles(ollamaService);
             break;
         case "$(gear) Configurações":
-            await showConfigurationMenu();
+            await showConfigurationMenu(ragService);
             break;
         case "$(info) Status da Conexão":
             await checkOllamaStatus(ollamaService);
@@ -504,12 +517,20 @@ async function showOllamaMenu(ollamaService: OllamaService, diffManager: DiffMan
     }
 }
 
-async function showConfigurationMenu() {
+async function showConfigurationMenu(ragService: RAGService) {
+    const hasExistingIndex = ragService.hasIndex();
+    const indexActionLabel = hasExistingIndex
+        ? "$(sync) Reindexar Projeto (RAG)"
+        : "$(database) Indexar Projeto (RAG)";
     const configItems = [
         {
-            label: "$(database) Indexar Projeto (RAG)",
-            description: "Indexar codebase para busca semântica",
-            detail: "Permite que a IA 'leia' todo o projeto"
+            label: indexActionLabel,
+            description: hasExistingIndex
+                ? "Recriar o indice semantico do projeto"
+                : "Indexar codebase para busca semantica",
+            detail: hasExistingIndex
+                ? "Executa nova indexacao completa do workspace"
+                : "Permite que a IA 'leia' todo o projeto"
         },
         {
             label: "$(symbol-class) Modelo Ollama",
@@ -545,6 +566,7 @@ async function showConfigurationMenu() {
     if (!selected) return;
 
     switch (selected.label) {
+        case "$(sync) Reindexar Projeto (RAG)":
         case "$(database) Indexar Projeto (RAG)":
             await vscode.commands.executeCommand('ollama-code-diff.indexCodebase');
             break;

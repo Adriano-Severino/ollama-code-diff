@@ -84,6 +84,9 @@ class RAGService {
             logger_1.Logger.error('Erro ao salvar vetores.', e);
         }
     }
+    hasIndex() {
+        return this.vectors.length > 0;
+    }
     async indexWorkspace() {
         if (this.isIndexing) {
             vscode.window.showWarningMessage('Indexação já em andamento.');

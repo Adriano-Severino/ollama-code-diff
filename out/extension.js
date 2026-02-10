@@ -62,7 +62,10 @@ function activate(context) {
     statusBarButton.command = 'ollama-code-diff.showMenu';
     statusBarButton.show();
     const showMenuCommand = vscode.commands.registerCommand('ollama-code-diff.showMenu', async () => {
-        await showOllamaMenu(ollamaService, diffManager, chatPanel); // Pass chatPanel instance
+        await showOllamaMenu(ollamaService, diffManager, chatPanel, ragService); // Pass chatPanel instance
+    });
+    const showConfigurationMenuCommand = vscode.commands.registerCommand('ollama-code-diff.showConfigurationMenu', async () => {
+        await showConfigurationMenu(ragService);
     });
     const generateCodeCommand = vscode.commands.registerCommand('ollama-code-diff.generateCode', async () => {
         await handleGenerateCode(ollamaService, diffManager, chatPanel);
@@ -100,7 +103,7 @@ function activate(context) {
     const lspQuickFixCommand = vscode.commands.registerCommand('ollama-code-diff.lspQuickFix', async () => {
         await runEditorLspCommand('editor.action.quickFix');
     });
-    context.subscriptions.push(statusBarButton, showMenuCommand, generateCodeCommand, editCodeCommand, analyzeFileCommand, analyzeProjectCommand, analyzeMultipleFilesCommand, showDiffCommand, undoLastAppliedChangesCommand, validateConfigCommand, lspRenameSymbolCommand, lspOrganizeImportsCommand, lspCodeActionsCommand, lspQuickFixCommand);
+    context.subscriptions.push(statusBarButton, showMenuCommand, showConfigurationMenuCommand, generateCodeCommand, editCodeCommand, analyzeFileCommand, analyzeProjectCommand, analyzeMultipleFilesCommand, showDiffCommand, undoLastAppliedChangesCommand, validateConfigCommand, lspRenameSymbolCommand, lspOrganizeImportsCommand, lspCodeActionsCommand, lspQuickFixCommand);
     // Register Quick Fix Provider
     const quickFixProvider = new quickFixProvider_1.OllamaQuickFixProvider(ollamaService);
     context.subscriptions.push(vscode.languages.registerCodeActionsProvider({ pattern: '**' }, quickFixProvider));
@@ -302,7 +305,7 @@ async function validateOllamaConfig(ollamaService, options = {}) {
         vscode.window.showInformationMessage('Comandos copiados para a área de transferência.');
     }
 }
-async function showOllamaMenu(ollamaService, diffManager, chatPanel) {
+async function showOllamaMenu(ollamaService, diffManager, chatPanel, ragService) {
     const editor = vscode.window.activeTextEditor;
     const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
     // Criar itens do menu baseado no contexto
@@ -370,19 +373,27 @@ async function showOllamaMenu(ollamaService, diffManager, chatPanel) {
             await handleAnalyzeMultipleFiles(ollamaService);
             break;
         case "$(gear) Configurações":
-            await showConfigurationMenu();
+            await showConfigurationMenu(ragService);
             break;
         case "$(info) Status da Conexão":
             await checkOllamaStatus(ollamaService);
             break;
     }
 }
-async function showConfigurationMenu() {
+async function showConfigurationMenu(ragService) {
+    const hasExistingIndex = ragService.hasIndex();
+    const indexActionLabel = hasExistingIndex
+        ? "$(sync) Reindexar Projeto (RAG)"
+        : "$(database) Indexar Projeto (RAG)";
     const configItems = [
         {
-            label: "$(database) Indexar Projeto (RAG)",
-            description: "Indexar codebase para busca semântica",
-            detail: "Permite que a IA 'leia' todo o projeto"
+            label: indexActionLabel,
+            description: hasExistingIndex
+                ? "Recriar o indice semantico do projeto"
+                : "Indexar codebase para busca semantica",
+            detail: hasExistingIndex
+                ? "Executa nova indexacao completa do workspace"
+                : "Permite que a IA 'leia' todo o projeto"
         },
         {
             label: "$(symbol-class) Modelo Ollama",
@@ -416,6 +427,7 @@ async function showConfigurationMenu() {
     if (!selected)
         return;
     switch (selected.label) {
+        case "$(sync) Reindexar Projeto (RAG)":
         case "$(database) Indexar Projeto (RAG)":
             await vscode.commands.executeCommand('ollama-code-diff.indexCodebase');
             break;
