@@ -1,0 +1,208 @@
+{
+  "name": "ollama-code-diff",
+  "displayName": "Ollama Code Diff",
+  "description": "CriaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o e ediÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o de cÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³digo com diff usando Ollama",
+  "version": "1.0.0",
+  "publisher": "adriano-severino",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Adriano-Severino/Ollama-Code-Diff.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:ollama-code-diff.generateCode",
+    "onCommand:ollama-code-diff.editCode",
+    "onCommand:ollama-code-diff.analyzeFile",
+    "onCommand:ollama-code-diff.analyzeProject",
+    "onCommand:ollama-code-diff.analyzeMultipleFiles",
+    "onCommand:ollama-code-diff.showDiff",
+    "onCommand:ollama-code-diff.showMenu",
+    "onCommand:ollama-code-diff.validateConfig",
+    "onView:ollama-code-diff.chatView"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ollama-code-diff.generateCode",
+         "title": "Gerar CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³digo com Ollama"
+      },
+      {
+        "command": "ollama-code-diff.editCode",
+        "title": "Editar CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³digo com Ollama"
+      },
+      {
+        "command": "ollama-code-diff.analyzeFile",
+        "title": "Analisar Arquivo com Ollama"
+      },
+      {
+        "command": "ollama-code-diff.analyzeProject",
+        "title": "Analisar Projeto Completo com Ollama"
+      },
+      {
+        "command": "ollama-code-diff.analyzeMultipleFiles",
+        "title": "Analisar MÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºltiplos Arquivos com Ollama"
+      },
+      {
+        "command": "ollama-code-diff.showDiff",
+        "title": "Mostrar Diff do CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³digo"
+      },
+      {
+        "command": "ollama-code-diff.showMenu",
+        "title": "Ollama Menu",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "ollama-code-diff.validateConfig",
+        "title": "Validar ConfiguraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o do Ollama"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ollama-code-diff.generateCode",
+        "key": "ctrl+alt+g",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "ollama-code-diff.editCode",
+        "key": "ctrl+alt+e",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "ollama-code-diff.analyzeFile",
+        "key": "ctrl+alt+a",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "ollama-code-diff.analyzeProject",
+        "key": "ctrl+alt+p",
+        "when": "workspaceFolderCount > 0"
+      },
+      {
+        "command": "ollama-code-diff.analyzeMultipleFiles",
+        "key": "ctrl+alt+m",
+        "when": "workspaceFolderCount > 0"
+      },
+      {
+        "command": "ollama-code-diff.showMenu",
+        "key": "ctrl+alt+o"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ollama-code-diff-views",
+          "title": "Ollama Code Diff",
+          "icon": "resources/ollama-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ollama-code-diff-views": [
+        {
+          "id": "ollama-code-diff.chatView",
+          "type": "webview",
+          "name": "Ollama Chat",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Ollama Code Diff",
+      "properties": {
+        "ollama-code-diff.modelName": {
+          "type": "string",
+          "default": "codellama:7b-instruct-q5_K_M",
+          "description": "Nome do modelo Ollama a ser usado"
+        },
+        "ollama-code-diff.contextSize": {
+          "type": "number",
+          "default": 32768,
+          "description": "Tamanho do contexto (num_ctx)"
+        },
+        "ollama-code-diff.maxTokens": {
+          "type": "number",
+          "default": 8192,
+          "description": "MÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ximo de tokens para geraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o"
+        },
+        "ollama-code-diff.requestTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "description": "Timeout (ms) para requisiÃƒÂ§ÃƒÂµes ao Ollama. Use 0 para desativar."
+        },
+        "ollama-code-diff.chunkSize": {
+          "type": "number",
+          "default": 25000,
+          "description": "Tamanho dos chunks para arquivos grandes"
+        },
+        "ollama-code-diff.ollamaHost": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Host do servidor Ollama"
+        },
+        "ollama-code-diff.enableGhostText": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ativar autocompletar(Ghost Text)"
+        },
+        "ollama-code-diff.completionModelName": {
+          "type": "string",
+          "default": "qwen2.5-coder:1.5b-base",
+          "description": "Modelo especÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­fico para autocompletar (rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡pido)"
+        },
+        "ollama-code-diff.enableVerboseLogs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ativar logs detalhados no Output"
+        },
+        "ollama-code-diff.embeddingModelName": {
+          "type": "string",
+          "default": "nomic-embed-text",
+          "description": "Modelo para embeddings (RAG)"
+        },
+        "ollama-code-diff.enableEmbeddingCache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ativar cache de embeddings"
+        },
+        "ollama-code-diff.enablePartialResponseCache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ativar cache de respostas parciais"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm install && npm run compile",
+    "compile": "tsc -p ./",
+    "compile:test": "tsc -p ./tsconfig.test.json",
+    "watch": "tsc -watch -p ./",
+    "package": "npx vsce package",
+    "test:unit": "npm run compile && npm run compile:test && mocha --ui tdd ./out/test/test/unit/**/*.test.js",
+    "test:integration": "npm run compile && npm run compile:test && node ./out/test/test/runTest.js",
+    "test": "npm run test:unit && npm run test:integration"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.4.1",
+    "mocha": "^10.8.2",
+    "vsce": "^2.0.0"
+  },
+  "dependencies": {
+    "@types/uuid": "^10.0.0",
+    "cross-fetch": "^4.0.0",
+    "ignore": "^7.0.5",
+    "marked": "^17.0.1",
+    "ollama": "^0.5.0",
+    "typescript": "^5.3.0",
+    "uuid": "^13.0.0"
+  }
+}

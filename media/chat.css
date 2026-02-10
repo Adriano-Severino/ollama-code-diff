@@ -1,0 +1,659 @@
+:root {
+  --container-padding: 16px;
+  --font-family: "Segoe UI Variable Text", "Fira Sans", "Bahnschrift", var(--vscode-font-family, "Segoe UI");
+  --mono-font: "Cascadia Code", "Fira Code", var(--vscode-editor-font-family, "Consolas");
+  --font-size: var(--vscode-font-size, 13px);
+  --line-height: 1.55;
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+  --shadow-1: 0 6px 18px rgba(0, 0, 0, 0.22);
+  --shadow-2: 0 10px 24px rgba(0, 0, 0, 0.28);
+  --accent-rgb: 76, 194, 255;
+  --accent-2-rgb: 45, 211, 161;
+
+  /* Colors derived from VS Code Theme */
+  --bg-color: var(--vscode-editor-background);
+  --fg-color: var(--vscode-editor-foreground);
+  --surface-0: color-mix(in srgb, var(--bg-color) 92%, white 8%);
+  --surface-1: color-mix(in srgb, var(--bg-color) 86%, white 14%);
+  --surface-2: color-mix(in srgb, var(--bg-color) 78%, white 22%);
+  --input-bg: var(--vscode-input-background);
+  --input-fg: var(--vscode-input-foreground);
+  --input-border: color-mix(in srgb, var(--fg-color) 18%, transparent);
+  --button-bg: var(--vscode-button-background);
+  --button-fg: var(--vscode-button-foreground);
+  --button-hover: var(--vscode-button-hoverBackground);
+  --scrollbar-bg: var(--vscode-scrollbarSlider-background);
+  --scrollbar-hover: var(--vscode-scrollbarSlider-hoverBackground);
+  --border-color: color-mix(in srgb, var(--fg-color) 14%, transparent);
+  --glass-bg: color-mix(in srgb, var(--vscode-sideBar-background) 78%, transparent);
+
+  /* Accents */
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-2: rgb(var(--accent-2-rgb));
+  --accent-glow: rgba(var(--accent-rgb), 0.22);
+  --accent-soft: rgba(var(--accent-rgb), 0.08);
+  --success-color: #3fb950;
+  --step-border: var(--vscode-widget-border, #454545);
+  --user-msg-bg: color-mix(in srgb, rgba(var(--accent-rgb), 0.22) 20%, var(--input-bg) 80%);
+  --user-msg-fg: var(--fg-color);
+  --assistant-msg-bg: var(--surface-1);
+}
+
+body {
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(var(--accent-rgb), 0.12), transparent 55%),
+    radial-gradient(140% 120% at 100% 0%, rgba(var(--accent-2-rgb), 0.10), transparent 60%),
+    var(--bg-color);
+  color: var(--fg-color);
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 100%;
+  position: relative;
+  /* For overlays */
+  animation: appIn 0.35s ease;
+}
+
+/* Header & Controls */
+.header-controls {
+  padding: 8px var(--container-padding);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  height: 44px;
+  box-sizing: border-box;
+}
+
+.left-controls,
+.window-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-selector-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.icon-ollama {
+  font-size: 1.2em;
+}
+
+select {
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border);
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  outline: none;
+  max-width: 150px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-color);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius-s);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1em;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  border-color: var(--border-color);
+}
+
+button:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.icon-button {
+  background: color-mix(in srgb, var(--surface-1) 60%, transparent);
+  border-color: var(--border-color);
+}
+
+.icon-button:hover {
+  background: var(--surface-2);
+  transform: translateY(-1px);
+}
+
+/* Messages Area */
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--container-padding);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scrollbar-gutter: stable;
+}
+
+.message {
+  max-width: 100%;
+  line-height: var(--line-height);
+  animation: messageIn 0.28s ease;
+  word-break: break-word;
+}
+
+.message.user {
+  align-self: flex-end;
+  background: var(--user-msg-bg);
+  color: var(--user-msg-fg);
+  padding: 10px 14px;
+  border-radius: 18px 18px 6px 18px;
+  max-width: 92%;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 45%, transparent);
+  box-shadow: var(--shadow-1);
+}
+
+.message.ollama {
+  align-self: flex-start;
+  padding: 12px 14px;
+  width: 100%;
+  max-width: 96%;
+  background: var(--assistant-msg-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-1);
+}
+
+/* Markdown Styling */
+.message h1,
+.message h2,
+.message h3 {
+  margin-top: 10px;
+  margin-bottom: 5px;
+  font-weight: 600;
+}
+
+.message p {
+  margin-bottom: 8px;
+}
+
+.message code {
+  font-family: var(--mono-font);
+  background: color-mix(in srgb, var(--bg-color) 85%, var(--fg-color) 15%);
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+
+.message pre {
+  background: color-mix(in srgb, var(--bg-color) 88%, black 12%);
+  padding: 12px;
+  border-radius: var(--radius-m);
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  margin: 8px 0;
+}
+
+.message pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--vscode-textPreformat-foreground);
+}
+
+.message blockquote {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent-color);
+  background: color-mix(in srgb, var(--bg-color) 90%, var(--accent-color) 10%);
+  border-radius: var(--radius-s);
+}
+
+.message a {
+  color: var(--accent-color);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-color) 50%, transparent);
+}
+
+.message a:hover {
+  color: var(--accent-2);
+}
+
+/* History Sidebar/Overlay */
+.history-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 250px;
+  background: var(--glass-bg);
+  border-right: 1px solid var(--border-color);
+  backdrop-filter: blur(10px);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-2);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 1;
+}
+
+.history-overlay.hidden {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+.history-header {
+  padding: 10px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+}
+
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px;
+}
+
+.history-item {
+  padding: 8px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.history-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.history-item.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.history-item .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  margin-right: 8px;
+}
+
+.history-item .delete-btn {
+  font-size: 0.8em;
+  opacity: 0.6;
+  padding: 2px;
+}
+
+.history-item .delete-btn:hover {
+  opacity: 1;
+  background: var(--vscode-list-errorForeground);
+  color: white;
+  border-radius: 50%;
+}
+
+/* Pinned Files */
+.pinned-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px var(--container-padding);
+  background: color-mix(in srgb, var(--bg-color) 85%, transparent);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.85em;
+  min-height: 0;
+}
+
+.pinned-file {
+  background: color-mix(in srgb, var(--vscode-badge-background) 70%, var(--bg-color) 30%);
+  color: var(--vscode-badge-foreground);
+  padding: 4px 8px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.pinned-file .remove {
+  cursor: pointer;
+  font-weight: bold;
+}
+
+/* Processing Indicator (Copilot-like) */
+.processing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px var(--container-padding);
+  border-top: 1px solid var(--border-color);
+  background: var(--surface-0);
+  color: var(--fg-color);
+  font-size: 0.9em;
+}
+
+.processing-indicator.hidden {
+  display: none;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(128, 128, 128, 0.2);
+  border-top-color: var(--accent-color);
+  animation: spin 1s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.processing-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#processing-title {
+  font-weight: 500;
+}
+
+#processing-subtitle {
+  font-size: 0.85em;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stop-button {
+  background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 75%, var(--bg-color) 25%);
+  color: var(--vscode-button-secondaryForeground);
+  border-radius: var(--radius-s);
+  padding: 6px 10px;
+  font-size: 0.95em;
+}
+
+.stop-button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.stop-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Input Area (Bottom) */
+.input-area-container {
+  padding: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+textarea#chat-input {
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  padding: 12px 14px;
+  border-radius: 14px;
+  resize: none;
+  font-family: inherit;
+  min-height: 40px;
+  max-height: 200px;
+  width: 100%;
+  box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+textarea#chat-input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+textarea#chat-input::placeholder {
+  color: color-mix(in srgb, var(--input-fg) 60%, transparent);
+}
+
+.bottom-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.right-bottom {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-selector-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 0.9em;
+}
+
+.model-selector-group select {
+  max-width: 120px;
+}
+
+#mode-select {
+  padding: 4px 8px;
+  height: 30px;
+  background-color: var(--vscode-input-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.send-button {
+  background: linear-gradient(135deg, var(--accent-color), var(--accent-2));
+  color: var(--button-fg);
+  border-radius: 999px;
+  padding: 6px 18px;
+  font-weight: bold;
+  height: 32px;
+  border: none;
+  box-shadow: 0 6px 14px rgba(var(--accent-rgb), 0.35);
+}
+
+.send-button:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+/* Suggestions */
+.suggestions-box {
+  position: absolute;
+  bottom: 140px;
+  left: 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--vscode-menu-border);
+  z-index: 1000;
+  width: 300px;
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(10px);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+.suggestion-item {
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.suggestion-item:hover,
+.suggestion-item.selected {
+  background: var(--vscode-menu-selectionBackground);
+  color: var(--vscode-menu-selectionForeground);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes appIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Thinking Steps / Agent Process */
+.agent-process-container {
+  margin: 12px 0;
+  border: 1px solid var(--step-border);
+  border-radius: var(--radius-m);
+  background: rgba(128, 128, 128, 0.06);
+  overflow: hidden;
+}
+
+.agent-process-header {
+  padding: 8px 12px;
+  background: rgba(128, 128, 128, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.85em;
+  font-weight: 500;
+  border-bottom: 1px solid var(--step-border);
+}
+
+.agent-process-header:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+
+.agent-process-steps {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-step-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.step-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.spinner-small {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid rgba(128, 128, 128, 0.2);
+  border-top-color: var(--accent-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.step-icon.done {
+  color: var(--success-color);
+  font-weight: bold;
+}
+
+.step-icon.error {
+  color: var(--vscode-errorForeground);
+}
+
+.step-label {
+  font-size: 0.9em;
+  opacity: 0.9;
+}
+
+.step-details {
+  margin-left: 28px;
+  font-size: 0.82em;
+  opacity: 0.5;
+  font-style: italic;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-bg);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+}
