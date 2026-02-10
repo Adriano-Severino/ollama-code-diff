@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
+import { exec, ExecException } from 'child_process';
 
 import { OllamaService } from './ollama';
 import { DiffManager } from './diffManager';
@@ -9,6 +9,8 @@ import { RAGService } from './services/ragService';
 import { HistoryManager } from './historyManager';
 import { Logger } from './utils/logger';
 import { parseAgentToolCall } from './utils/agentToolCallParser';
+import { chunkTextForTokenBudget, ChunkedTextForTokenBudget } from './utils/contextWindow';
+import { formatTerminalCommandForContext } from './utils/terminalCommand';
 import { parseUnifiedDiff, sanitizeUnifiedDiff } from './utils/unifiedDiff';
 
 type ChatMsg = { role: 'system' | 'user' | 'assistant'; content: string };
@@ -422,7 +424,7 @@ You must follow a Thought-Plan-Action cycle:
 3. Action: Choose exactly one tool call in JSON.
 
 AVAILABLE TOOLS:
-- run: Execute shell commands. args: { "command": "npm test" }
+- run: Execute shell commands after user confirmation. args: { "command": "npm test" }. Returns stdout/stderr/exit code.
 - read: Read file content. args: { "filePath": "src/app.ts" }
 - write: Write/create file. args: { "filePath": "new.ts", "content": "..." }
 - editcode: Edit code in active editor or file selection with AI. args: { "instruction": "..." }
@@ -639,33 +641,108 @@ Final Answer: ...`;
     }
   }
 
-  private async runCommand(command: string): Promise<string> {
-    if (!command) return 'Por favor, forneça um comando para executar.';
-    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) return 'Nenhum workspace aberto para executar o comando.';
+  private async runCommand(commandValue: string): Promise<string> {
+    const command = this.asNonEmptyString(commandValue);
+    if (!command) return 'Por favor, forneca um comando para executar.';
 
-    const cwd = vscode.workspace.workspaceFolders[0].uri.fsPath;
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) return 'Nenhum workspace aberto para executar o comando.';
+
+    const cwd = workspaceFolder.uri.fsPath;
+    const confirmationEnabled = vscode.workspace
+      .getConfiguration('ollama-code-diff')
+      .get<boolean>('requireTerminalCommandConfirmation', true);
+
+    if (confirmationEnabled) {
+      const action = await vscode.window.showWarningMessage(
+        'O Agent quer executar um comando de terminal.',
+        {
+          modal: true,
+          detail: `Comando: ${command}\nDiretorio: ${cwd}\nA saida sera anexada ao contexto do Agent.`
+        },
+        'Executar',
+        'Cancelar'
+      );
+
+      if (action !== 'Executar') {
+        this.view?.webview.postMessage({
+          type: 'addMessage',
+          sender: 'system',
+          text: `Execucao cancelada para: ${command}`
+        });
+
+        return formatTerminalCommandForContext({
+          command,
+          cwd,
+          status: 'cancelled',
+          exitCode: null,
+          durationMs: 0
+        });
+      }
+    }
+
+    Logger.info(`[Agent/run] Executando comando: ${command}`);
     this.view?.webview.postMessage({ type: 'addMessage', sender: 'system', text: `Executando: ${command}...` });
 
+    const startedAt = Date.now();
     return new Promise((resolve) => {
       exec(command, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-        let output = '';
-        if (stdout) output += stdout;
-        if (stderr) output += `\nSTDERR:\n${stderr}`;
-        if (error) output += `\nERROR:\n${error.message}`;
-        if (!output.trim()) output = 'Comando executado sem saída.';
-        resolve(output);
+        const execError = error as ExecException | null;
+        const rawExitCode = execError?.code;
+        const exitCode = typeof rawExitCode === 'number' ? rawExitCode : null;
+        const durationMs = Date.now() - startedAt;
+
+        if (execError) {
+          Logger.warn(`[Agent/run] Comando falhou: ${command}`, execError);
+        } else {
+          Logger.debug(`[Agent/run] Comando concluido em ${durationMs}ms: ${command}`);
+        }
+
+        resolve(formatTerminalCommandForContext({
+          command,
+          cwd,
+          status: execError ? 'failed' : 'completed',
+          exitCode: execError ? (exitCode ?? 1) : 0,
+          durationMs,
+          stdout: stdout || '',
+          stderr: stderr || '',
+          errorMessage: execError?.message
+        }));
       });
     });
   }
 
   private async readFile(filePath: string): Promise<string> {
-    if (!filePath) return 'Por favor, forneça um caminho de arquivo para ler.';
+    if (!filePath) return 'Por favor, forneca um caminho de arquivo para ler.';
     if (!vscode.workspace.workspaceFolders) return 'Nenhum workspace aberto.';
 
-    const absolutePath = path.resolve(vscode.workspace.workspaceFolders[0].uri.fsPath, filePath);
+    const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
+    const absolutePath = path.resolve(workspaceRoot, filePath);
+    if (!this.isPathInsideRoot(workspaceRoot, absolutePath)) {
+      return `Caminho fora do workspace: ${filePath}`;
+    }
+
     try {
       const fileContent = await fs.promises.readFile(absolutePath, 'utf8');
-      return `Conteúdo de ${filePath}:\n\n${fileContent}`;
+      const { chunkSizeChars, readTokenBudget } = this.getContextWindowConfig();
+      const chunked = chunkTextForTokenBudget(fileContent, {
+        chunkSizeChars,
+        maxTokens: readTokenBudget
+      });
+
+      if (chunked.includedChunkCount === 0) {
+        return `Conteudo de ${filePath} nao pode ser exibido no budget atual de contexto.`;
+      }
+
+      const renderedContent = this.renderChunkedContent(chunked);
+      const summary = chunked.truncated
+        ? `Conteudo de ${filePath} (~${chunked.usedTokens}/${chunked.estimatedTotalTokens} tokens, ${chunked.includedChunkCount}/${chunked.totalChunkCount} chunks):`
+        : `Conteudo de ${filePath}:`;
+      const truncationNote = chunked.truncated
+        ? '\n\n...[arquivo truncado para respeitar o limite de contexto]'
+        : '';
+
+      return `${summary}\n\n${renderedContent}${truncationNote}`;
     } catch (error) {
       return `Erro ao ler arquivo ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -1303,42 +1380,170 @@ Final Answer: ...`;
     this.view?.webview.postMessage({ type: 'updatePinnedFiles', files: Array.from(this.pinnedFiles) });
   }
 
+  private normalizePositiveInt(value: number | undefined, fallback: number, minimum = 1): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum) {
+      return fallback;
+    }
+
+    return Math.max(minimum, Math.floor(value));
+  }
+
+  private getContextWindowConfig(): { chunkSizeChars: number; contextTokenBudget: number; readTokenBudget: number } {
+    const config = vscode.workspace.getConfiguration('ollama-code-diff');
+    const contextSize = this.normalizePositiveInt(config.get<number>('contextSize', 32768), 32768, 1024);
+    const maxTokens = this.normalizePositiveInt(config.get<number>('maxTokens', 8192), 8192, 256);
+    const chunkSizeChars = this.normalizePositiveInt(config.get<number>('chunkSize', 25000), 25000, 512);
+
+    const safeInputTokens = Math.max(1024, contextSize - Math.max(512, maxTokens));
+    const contextTokenBudget = Math.max(512, Math.floor(safeInputTokens * 0.5));
+    const readTokenBudget = Math.max(256, Math.floor(safeInputTokens * 0.65));
+
+    return { chunkSizeChars, contextTokenBudget, readTokenBudget };
+  }
+
+  private async resolveContextFileUri(fileRef: string): Promise<vscode.Uri | undefined> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      return undefined;
+    }
+
+    const normalizedRef = fileRef.trim();
+    if (!normalizedRef) {
+      return undefined;
+    }
+
+    const directPath = path.resolve(workspaceFolder.uri.fsPath, normalizedRef);
+    if (this.isPathInsideRoot(workspaceFolder.uri.fsPath, directPath)) {
+      try {
+        const stats = await fs.promises.stat(directPath);
+        if (stats.isFile()) {
+          return vscode.Uri.file(directPath);
+        }
+      } catch {
+        // fallback to workspace glob lookup
+      }
+    }
+
+    try {
+      const matches = await vscode.workspace.findFiles(normalizedRef, '**/node_modules/**', 1);
+      return matches[0];
+    } catch {
+      return undefined;
+    }
+  }
+
+  private renderChunkedContent(chunked: ChunkedTextForTokenBudget): string {
+    const shouldAnnotateChunks = chunked.totalChunkCount > 1 || chunked.partialChunkIncluded;
+    return chunked.chunks
+      .map((chunk, index) => {
+        if (!shouldAnnotateChunks) {
+          return chunk;
+        }
+        return `[chunk ${index + 1}/${chunked.totalChunkCount}]\n${chunk}`;
+      })
+      .join('\n\n');
+  }
+
   private async resolveMessageContext(message: string): Promise<string> {
     const mentionRegex = /@([a-zA-Z0-9_.\-\/]+)/g;
     const resolvedMessage = message;
+    const { chunkSizeChars, contextTokenBudget } = this.getContextWindowConfig();
+    let remainingTokens = contextTokenBudget;
     let contextData = '';
 
-    // 1) Pinned files
-    if (this.pinnedFiles.size > 0) {
-      contextData += '\n\n--- ARQUIVOS FIXADOS (PINNED) ---\n';
-      for (const pinnedFile of this.pinnedFiles) {
-        try {
-          const files = await vscode.workspace.findFiles(pinnedFile);
-          if (files.length === 0) continue;
-          const content = await fs.promises.readFile(files[0].fsPath, 'utf8');
-          contextData += `\n# ${pinnedFile}\n${content}\n`;
-        } catch (e) {
-          Logger.error(`Erro ao ler arquivo fixado: ${pinnedFile}`, e);
-        }
+    const targets: Array<{ source: 'pinned' | 'mention'; requestedPath: string; uri: vscode.Uri; relativePath: string }> = [];
+    const seenPaths = new Set<string>();
+
+    const addTarget = async (source: 'pinned' | 'mention', requestedPath: string) => {
+      const fileUri = await this.resolveContextFileUri(requestedPath);
+      if (!fileUri) {
+        return;
       }
-      contextData += '\n---------------------------------\n';
+
+      const relativePath = vscode.workspace.asRelativePath(fileUri, false);
+      const dedupeKey = relativePath.toLowerCase();
+      if (seenPaths.has(dedupeKey)) {
+        return;
+      }
+
+      seenPaths.add(dedupeKey);
+      targets.push({ source, requestedPath, uri: fileUri, relativePath });
+    };
+
+    for (const pinnedFile of this.pinnedFiles) {
+      await addTarget('pinned', pinnedFile);
     }
 
-    // 2) Mentions
     const matches = message.match(mentionRegex);
     if (matches) {
       for (const match of matches) {
         const filename = match.substring(1);
-        try {
-          const files = await vscode.workspace.findFiles(filename);
-          if (files.length === 0) continue;
-          const fileUri = files[0];
-          const content = await fs.promises.readFile(fileUri.fsPath, 'utf8');
-          contextData += `\n\n--- CONTEXTO DO ARQUIVO: ${vscode.workspace.asRelativePath(fileUri)} ---\n${content}\n----------------------------------\n`;
-        } catch (e) {
-          Logger.error(`Erro ao ler arquivo mencionado: ${filename}`, e);
-        }
+        await addTarget('mention', filename);
       }
+    }
+
+    if (targets.length === 0) {
+      return resolvedMessage;
+    }
+
+    const pinnedSections: string[] = [];
+    const mentionSections: string[] = [];
+    let omittedFiles = 0;
+
+    for (let index = 0; index < targets.length; index++) {
+      if (remainingTokens <= 0) {
+        omittedFiles += targets.length - index;
+        break;
+      }
+
+      const target = targets[index];
+      const remainingFiles = targets.length - index;
+      const fairShare = Math.floor(remainingTokens / Math.max(remainingFiles, 1));
+      const fileTokenBudget = Math.max(1, Math.min(remainingTokens, Math.max(128, fairShare)));
+
+      try {
+        const content = await fs.promises.readFile(target.uri.fsPath, 'utf8');
+        const chunked = chunkTextForTokenBudget(content, {
+          chunkSizeChars,
+          maxTokens: fileTokenBudget
+        });
+
+        if (chunked.includedChunkCount === 0) {
+          omittedFiles++;
+          continue;
+        }
+
+        remainingTokens = Math.max(0, remainingTokens - chunked.usedTokens);
+        const rendered = this.renderChunkedContent(chunked);
+        const truncationNote = chunked.truncated
+          ? `\n[context truncated: ${chunked.includedChunkCount}/${chunked.totalChunkCount} chunks, ~${chunked.usedTokens}/${chunked.estimatedTotalTokens} tokens]`
+          : '';
+
+        if (target.source === 'pinned') {
+          pinnedSections.push(`\n# ${target.relativePath}\n${rendered}${truncationNote}\n`);
+        } else {
+          mentionSections.push(
+            `\n\n--- CONTEXTO DO ARQUIVO: ${target.relativePath} ---\n${rendered}${truncationNote}\n----------------------------------\n`
+          );
+        }
+      } catch (error) {
+        omittedFiles++;
+        Logger.error(`Erro ao ler arquivo de contexto: ${target.requestedPath}`, error);
+      }
+    }
+
+    if (pinnedSections.length > 0) {
+      contextData += '\n\n--- ARQUIVOS FIXADOS (PINNED) ---\n';
+      contextData += pinnedSections.join('');
+      contextData += '\n---------------------------------\n';
+    }
+
+    if (mentionSections.length > 0) {
+      contextData += mentionSections.join('');
+    }
+
+    if (omittedFiles > 0) {
+      contextData += `\n[Context budget reached: ${omittedFiles} arquivo(s) omitido(s)]\n`;
     }
 
     return resolvedMessage + contextData;
@@ -1571,3 +1776,4 @@ function getNonce() {
   }
   return text;
 }
+

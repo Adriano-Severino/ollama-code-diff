@@ -199,6 +199,11 @@
           "type": "boolean",
           "default": true,
           "description": "Ativar cache de respostas parciais"
+        },
+        "ollama-code-diff.requireTerminalCommandConfirmation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Exigir confirmacao antes de executar comandos de terminal no modo Agent"
         }
       }
     }

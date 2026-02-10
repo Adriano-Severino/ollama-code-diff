@@ -76,7 +76,7 @@ No modo Agente, a extensão Ollama Code Diff se transforma em um assistente de I
 
 **Ferramentas Disponíveis no Modo Agente:**
 
-*   **`/run <command>`**: Executa um comando no terminal. Útil para comandos de shell, npm, git, etc.
+*   **`/run <command>`**: Executa um comando no terminal com confirmação do usuário, captura `stdout/stderr/exit code` e anexa a saída ao contexto do Agent.
     *   Exemplo: `/run npm install`
 *   **`/read <file_path>`**: Lê o conteúdo de um arquivo.
     *   Exemplo: `/read src/extension.ts`
