@@ -21,6 +21,7 @@
     "onCommand:ollama-code-diff.analyzeProject",
     "onCommand:ollama-code-diff.analyzeMultipleFiles",
     "onCommand:ollama-code-diff.showDiff",
+    "onCommand:ollama-code-diff.undoLastAppliedChanges",
     "onCommand:ollama-code-diff.showMenu",
     "onCommand:ollama-code-diff.validateConfig",
     "onView:ollama-code-diff.chatView"
@@ -51,6 +52,10 @@
       {
         "command": "ollama-code-diff.showDiff",
         "title": "Mostrar Diff do CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³digo"
+      },
+      {
+        "command": "ollama-code-diff.undoLastAppliedChanges",
+        "title": "Desfazer Ultimas Mudancas Aplicadas"
       },
       {
         "command": "ollama-code-diff.showMenu",

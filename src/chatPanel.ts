@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { exec } from 'child_process';
 
 import { OllamaService } from './ollama';
@@ -719,27 +718,9 @@ Final Answer: ...`;
 
   private async applyDiff(diffContent: string): Promise<string> {
     if (!diffContent) return 'Por favor, forneça o conteúdo do diff para aplicar.';
-    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) return 'Nenhum workspace aberto para aplicar o diff.';
 
-    const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const tempDir = os.tmpdir();
-    const tempFilePath = path.join(tempDir, `ollama-code-diff-${Date.now()}.patch`);
-
-    try {
-      await fs.promises.writeFile(tempFilePath, diffContent, 'utf8');
-      const terminal = vscode.window.createTerminal({ name: 'Ollama Diff Apply', cwd: workspaceRoot });
-      terminal.show();
-      terminal.sendText(`git apply --whitespace=fix "${tempFilePath}"`);
-      return 'Diff aplicado (enviado ao terminal). Verifique o terminal para detalhes.';
-    } catch (error) {
-      return `Erro ao aplicar o diff: ${error instanceof Error ? error.message : String(error)}`;
-    } finally {
-      try {
-        await fs.promises.unlink(tempFilePath);
-      } catch {
-        // ignore
-      }
-    }
+    const result = await this.diffManager.previewAndApplyUnifiedDiff(diffContent, 'Patch do Agente');
+    return result.message;
   }
 
   private async findFile(pattern: string): Promise<string> {

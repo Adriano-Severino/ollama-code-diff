@@ -20,6 +20,7 @@ suite('Extension Integration', () => {
       'ollama-code-diff.analyzeProject',
       'ollama-code-diff.analyzeMultipleFiles',
       'ollama-code-diff.showDiff',
+      'ollama-code-diff.undoLastAppliedChanges',
       'ollama-code-diff.showMenu',
       'ollama-code-diff.validateConfig',
       'ollama-code-diff.fixDiagnostic',

@@ -82,10 +82,13 @@ function activate(context) {
     const showDiffCommand = vscode.commands.registerCommand('ollama-code-diff.showDiff', async () => {
         await diffManager.showLastDiff();
     });
+    const undoLastAppliedChangesCommand = vscode.commands.registerCommand('ollama-code-diff.undoLastAppliedChanges', async () => {
+        await diffManager.undoLastAppliedChanges();
+    });
     const validateConfigCommand = vscode.commands.registerCommand('ollama-code-diff.validateConfig', async () => {
         await validateOllamaConfig(ollamaService, { showSuccess: true });
     });
-    context.subscriptions.push(statusBarButton, showMenuCommand, generateCodeCommand, editCodeCommand, analyzeFileCommand, analyzeProjectCommand, analyzeMultipleFilesCommand, showDiffCommand, validateConfigCommand);
+    context.subscriptions.push(statusBarButton, showMenuCommand, generateCodeCommand, editCodeCommand, analyzeFileCommand, analyzeProjectCommand, analyzeMultipleFilesCommand, showDiffCommand, undoLastAppliedChangesCommand, validateConfigCommand);
     // Register Quick Fix Provider
     const quickFixProvider = new quickFixProvider_1.OllamaQuickFixProvider(ollamaService);
     context.subscriptions.push(vscode.languages.registerCodeActionsProvider({ pattern: '**' }, quickFixProvider));

@@ -86,6 +86,13 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
 
+    const undoLastAppliedChangesCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.undoLastAppliedChanges',
+        async () => {
+            await diffManager.undoLastAppliedChanges();
+        }
+    );
+
     const validateConfigCommand = vscode.commands.registerCommand(
         'ollama-code-diff.validateConfig',
         async () => {
@@ -102,6 +109,7 @@ export function activate(context: vscode.ExtensionContext) {
         analyzeProjectCommand,
         analyzeMultipleFilesCommand,
         showDiffCommand,
+        undoLastAppliedChangesCommand,
         validateConfigCommand
     );
 
