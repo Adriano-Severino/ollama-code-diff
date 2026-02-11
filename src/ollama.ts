@@ -1,5 +1,4 @@
 import { Ollama } from 'ollama';
-import fetch from 'cross-fetch';
 import * as vscode from 'vscode';
 import { performance } from 'perf_hooks';
 import * as crypto from 'crypto';
@@ -20,7 +19,6 @@ export class OllamaService {
 
     this.ollama = new Ollama({
       host,
-      fetch: fetch as any,
     });
   }
 

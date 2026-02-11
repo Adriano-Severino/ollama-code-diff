@@ -32,13 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OllamaService = void 0;
 const ollama_1 = require("ollama");
-const cross_fetch_1 = __importDefault(require("cross-fetch"));
 const vscode = __importStar(require("vscode"));
 const perf_hooks_1 = require("perf_hooks");
 const crypto = __importStar(require("crypto"));
@@ -52,7 +48,6 @@ class OllamaService {
         const host = config.get('ollamaHost', 'http://localhost:11434');
         this.ollama = new ollama_1.Ollama({
             host,
-            fetch: cross_fetch_1.default,
         });
     }
     /**
