@@ -26,8 +26,8 @@ const historyList = document.getElementById('history-list');
 const INPUT_PLACEHOLDER_BY_MODE = {
   chat: 'Pergunte algo ou digite /explain, /fix, /test, /refactor...',
   agent: 'Descreva uma tarefa para o Agent (planejar + executar)...',
-  edit: 'Descreva a edicao em linguagem natural para gerar um patch aplicavel...',
-  plan: 'Descreva um plano ou estrategia...'
+  edit: 'Descreva a edição em linguagem natural para gerar um patch...',
+  plan: 'Descreva uma funcionalidade ou refatoração para planejar...'
 };
 
 let availableFiles = [];
@@ -35,7 +35,7 @@ let isProcessing = false;
 let processingStartTime = null;
 let elapsedTimeInterval = null;
 
-// Markdown
+// Markdown config
 if (typeof marked !== 'undefined') {
   marked.use({ gfm: true, breaks: true });
 }
@@ -108,7 +108,7 @@ function cancelGeneration() {
 if (chatInput) {
   chatInput.addEventListener('input', function () {
     this.style.height = 'auto';
-    this.style.height = this.scrollHeight + 'px';
+    this.style.height = Math.min(this.scrollHeight, 200) + 'px';
     if (this.value === '') this.style.height = 'auto';
   });
 
@@ -173,11 +173,9 @@ function setProcessing(state, info = {}) {
 
   if (state) {
     processingIndicator.classList.remove('hidden');
-    // UX melhor: deixa digitar, mas bloqueia envio
     if (sendButton) sendButton.disabled = true;
     if (stopButton) stopButton.disabled = false;
 
-    // Start elapsed time tracking
     if (!processingStartTime) {
       processingStartTime = Date.now();
       updateElapsedTime();
@@ -189,7 +187,6 @@ function setProcessing(state, info = {}) {
     if (stopButton) stopButton.disabled = true;
     if (chatInput) chatInput.focus();
 
-    // Stop elapsed time tracking
     if (elapsedTimeInterval) {
       clearInterval(elapsedTimeInterval);
       elapsedTimeInterval = null;
@@ -213,6 +210,7 @@ function sendMessage() {
   const text = chatInput.value.trim();
   if (!text || isProcessing) return;
 
+  removeWelcomeScreen();
   setProcessing(true, { title: 'Processando…', subtitle: 'Enviando para o modelo…' });
 
   vscode.postMessage({
@@ -283,14 +281,107 @@ function moveSelection(direction) {
 function renderMessageContent(text) {
   if (typeof text !== 'string') return '';
   if (typeof marked !== 'undefined') {
-    try { return marked.parse(text); }
-    catch (e) { console.error('Markdown parse error:', e); return text; }
+    try {
+      return marked.parse(text);
+    } catch (e) {
+      console.error('Markdown parse error:', e);
+      return text;
+    }
   }
   return text.replace(/\n/g, '<br>');
 }
 
+/**
+ * Enriches rendered Markdown code blocks with a header and Copilot-like Action Buttons
+ * (Copy Code, Insert at Cursor, Apply to Editor)
+ */
+function enhanceCodeBlocks(container) {
+  const preElements = container.querySelectorAll('pre');
+  preElements.forEach(pre => {
+    // Avoid double wrapping
+    if (pre.parentElement && pre.parentElement.classList.contains('code-block-wrapper')) {
+      return;
+    }
+
+    const codeEl = pre.querySelector('code');
+    const rawCode = codeEl ? codeEl.textContent || '' : pre.textContent || '';
+    
+    // Detect language from class (e.g. language-typescript)
+    let lang = 'code';
+    if (codeEl) {
+      const match = codeEl.className.match(/language-([a-zA-Z0-9_-]+)/);
+      if (match) {
+        lang = match[1];
+      }
+    }
+
+    // Create Wrapper
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block-wrapper';
+
+    // Header Bar
+    const header = document.createElement('div');
+    header.className = 'code-block-header';
+
+    const langBadge = document.createElement('span');
+    langBadge.className = 'code-lang';
+    langBadge.textContent = lang;
+
+    const actions = document.createElement('div');
+    actions.className = 'code-actions';
+
+    // 1. Copy Button
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'code-action-btn copy-btn';
+    copyBtn.title = 'Copiar código';
+    copyBtn.innerHTML = '<span class="btn-icon">📋</span><span class="btn-text">Copiar</span>';
+    copyBtn.onclick = (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(rawCode).then(() => {
+        copyBtn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Copiado!</span>';
+        copyBtn.classList.add('success');
+        setTimeout(() => {
+          copyBtn.innerHTML = '<span class="btn-icon">📋</span><span class="btn-text">Copiar</span>';
+          copyBtn.classList.remove('success');
+        }, 2000);
+      });
+    };
+
+    // 2. Insert at Cursor Button
+    const insertBtn = document.createElement('button');
+    insertBtn.className = 'code-action-btn insert-btn';
+    insertBtn.title = 'Inserir na posição atual do cursor';
+    insertBtn.innerHTML = '<span class="btn-icon">📥</span><span class="btn-text">Inserir</span>';
+    insertBtn.onclick = (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ command: 'insertAtCursor', code: rawCode });
+    };
+
+    // 3. Apply to Active Editor Button
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'code-action-btn apply-btn';
+    applyBtn.title = 'Aplicar alterações no editor com diff';
+    applyBtn.innerHTML = '<span class="btn-icon">⚡</span><span class="btn-text">Aplicar</span>';
+    applyBtn.onclick = (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ command: 'applyCode', code: rawCode });
+    };
+
+    actions.appendChild(copyBtn);
+    actions.appendChild(insertBtn);
+    actions.appendChild(applyBtn);
+
+    header.appendChild(langBadge);
+    header.appendChild(actions);
+
+    // Insert wrapper before pre, and move pre inside wrapper
+    pre.parentNode.insertBefore(wrapper, pre);
+    wrapper.appendChild(header);
+    wrapper.appendChild(pre);
+  });
+}
+
 function renderAgentStep(step) {
-  // step: { id, label, status: 'loading' | 'done' | 'error', details }
   const stepEl = document.createElement('div');
   stepEl.className = `agent-step ${step.status}`;
 
@@ -352,14 +443,110 @@ function ensureAgentContainer(parent) {
   return container;
 }
 
+function removeWelcomeScreen() {
+  const welcome = document.getElementById('welcome-screen');
+  if (welcome) {
+    welcome.remove();
+  }
+}
+
+function renderWelcomeScreen() {
+  if (messagesDiv.children.length > 0) return;
+
+  const welcome = document.createElement('div');
+  welcome.id = 'welcome-screen';
+  welcome.className = 'welcome-screen';
+
+  welcome.innerHTML = `
+    <div class="welcome-header">
+      <div class="welcome-badge">Local AI Assistant</div>
+      <h2 class="welcome-title">Ollama Code Diff <span class="badge-v">v2.1</span></h2>
+      <p class="welcome-subtitle">Seu Par Programador Local Inteligente. Escolha uma ação rápida para começar:</p>
+    </div>
+    <div class="quick-prompts-grid">
+      <div class="quick-prompt-card" data-cmd="/explain">
+        <div class="card-icon">🔍</div>
+        <div class="card-info">
+          <div class="card-title">Explicar Código</div>
+          <div class="card-desc">Análise detalhada do trecho ativo</div>
+        </div>
+      </div>
+      <div class="quick-prompt-card" data-cmd="/fix">
+        <div class="card-icon">🛠️</div>
+        <div class="card-info">
+          <div class="card-title">Corrigir Bugs</div>
+          <div class="card-desc">Encontre e corrija erros rapidamente</div>
+        </div>
+      </div>
+      <div class="quick-prompt-card" data-cmd="/test">
+        <div class="card-icon">🧪</div>
+        <div class="card-info">
+          <div class="card-title">Gerar Testes</div>
+          <div class="card-desc">Testes unitários automatizados</div>
+        </div>
+      </div>
+      <div class="quick-prompt-card" data-cmd="/refactor">
+        <div class="card-icon">⚡</div>
+        <div class="card-info">
+          <div class="card-title">Refatorar</div>
+          <div class="card-desc">Melhoria de performance e clareza</div>
+        </div>
+      </div>
+      <div class="quick-prompt-card" data-mode="plan" data-placeholder="Planejar arquitetura para: ">
+        <div class="card-icon">📋</div>
+        <div class="card-info">
+          <div class="card-title">Modo Plan</div>
+          <div class="card-desc">Roadmap com checklist e impactos</div>
+        </div>
+      </div>
+      <div class="quick-prompt-card" data-mode="agent" data-placeholder="Executar tarefa: ">
+        <div class="card-icon">🤖</div>
+        <div class="card-info">
+          <div class="card-title">Modo Agent</div>
+          <div class="card-desc">Agente autônomo com ferramentas</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Attach card click handlers
+  welcome.querySelectorAll('.quick-prompt-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const cmd = card.getAttribute('data-cmd');
+      const mode = card.getAttribute('data-mode');
+      const placeholder = card.getAttribute('data-placeholder');
+
+      if (mode && modeSelect) {
+        modeSelect.value = mode;
+        vscode.postMessage({ command: 'changeMode', mode });
+        updateInputPlaceholder();
+      }
+
+      if (cmd && chatInput) {
+        chatInput.value = cmd + ' ';
+        chatInput.focus();
+      } else if (placeholder && chatInput) {
+        chatInput.value = placeholder;
+        chatInput.focus();
+      } else if (chatInput) {
+        chatInput.focus();
+      }
+    });
+  });
+
+  messagesDiv.appendChild(welcome);
+}
+
 function addMessage(data, sender) {
+  removeWelcomeScreen();
+
   const messageElement = document.createElement('div');
   messageElement.classList.add('message', sender);
 
   if (typeof data === 'string') {
     messageElement.innerHTML = renderMessageContent(data);
+    enhanceCodeBlocks(messageElement);
   } else if (data && data.type === 'agentProcess') {
-    // Create the container and initial steps
     const container = ensureAgentContainer(messageElement);
     const stepsDiv = container.querySelector('.agent-process-steps');
     stepsDiv.innerHTML = '';
@@ -369,9 +556,9 @@ function addMessage(data, sender) {
       stepCount.textContent = `${(data.steps || []).filter(s => s.status === 'done').length}/${(data.steps || []).length}`;
     }
   } else {
-    // Fallback: stringify unknown objects
     try {
       messageElement.innerHTML = renderMessageContent(JSON.stringify(data));
+      enhanceCodeBlocks(messageElement);
     } catch {
       messageElement.textContent = String(data);
     }
@@ -382,7 +569,9 @@ function addMessage(data, sender) {
 }
 
 function replaceLastMessage(data, sender) {
-  if (messagesDiv.lastElementChild) messagesDiv.removeChild(messagesDiv.lastElementChild);
+  if (messagesDiv.lastElementChild && !messagesDiv.lastElementChild.classList.contains('welcome-screen')) {
+    messagesDiv.removeChild(messagesDiv.lastElementChild);
+  }
   addMessage(data, sender);
 }
 
@@ -391,6 +580,7 @@ function updateLastMessage(data, sender) {
   if (lastMsg && lastMsg.classList.contains(sender)) {
     if (typeof data === 'string') {
       lastMsg.innerHTML = renderMessageContent(data);
+      enhanceCodeBlocks(lastMsg);
     } else if (data && data.type === 'agentProcess') {
       const container = ensureAgentContainer(lastMsg);
       const stepsDiv = container.querySelector('.agent-process-steps');
@@ -403,6 +593,7 @@ function updateLastMessage(data, sender) {
     } else {
       try {
         lastMsg.innerHTML = renderMessageContent(JSON.stringify(data));
+        enhanceCodeBlocks(lastMsg);
       } catch {
         lastMsg.textContent = String(data);
       }
@@ -467,7 +658,7 @@ function renderHistoryList(sessions) {
     deleteBtn.textContent = '🗑️';
     deleteBtn.onclick = (e) => {
       e.stopPropagation();
-      if (confirm('Delete this chat?')) {
+      if (confirm('Excluir este chat?')) {
         vscode.postMessage({ command: 'deleteSession', sessionId: session.id });
       }
     };
@@ -523,6 +714,7 @@ window.addEventListener('message', event => {
 
     case 'clearChat':
       messagesDiv.innerHTML = '';
+      renderWelcomeScreen();
       break;
 
     case 'historyList':
@@ -550,3 +742,4 @@ window.addEventListener('message', event => {
 vscode.postMessage({ command: 'requestModels' });
 vscode.postMessage({ command: 'requestCurrentModel' });
 updateInputPlaceholder();
+renderWelcomeScreen();

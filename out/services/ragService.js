@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RAGService = void 0;
+exports.RAGService = exports.chunkMarkdown = exports.chunkPythonCode = exports.mapConcurrent = void 0;
 const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -44,6 +44,34 @@ const crypto = __importStar(require("crypto"));
 const ts = __importStar(require("typescript"));
 const ignore_1 = __importDefault(require("ignore"));
 const logger_1 = require("../utils/logger");
+const ragUtils_1 = require("../utils/ragUtils");
+Object.defineProperty(exports, "mapConcurrent", { enumerable: true, get: function () { return ragUtils_1.mapConcurrent; } });
+Object.defineProperty(exports, "chunkPythonCode", { enumerable: true, get: function () { return ragUtils_1.chunkPythonCode; } });
+Object.defineProperty(exports, "chunkMarkdown", { enumerable: true, get: function () { return ragUtils_1.chunkMarkdown; } });
+const IGNORED_DIRECTORIES = new Set([
+    'node_modules',
+    '.git',
+    'dist',
+    'build',
+    'out',
+    'target',
+    'bin',
+    'obj',
+    '.next',
+    '.nuxt',
+    '.turbo',
+    'coverage',
+    '.cache',
+    '.vscode-test'
+]);
+const IGNORED_FILENAMES = new Set([
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+    'cargo.lock',
+    'composer.lock',
+    'gemfile.lock'
+]);
 class RAGService {
     constructor(context, ollamaService) {
         this.vectors = [];
@@ -51,11 +79,10 @@ class RAGService {
         this.debounceTimers = new Map();
         this.embeddingCache = new Map();
         this.gitignoreCache = new Map();
-        this.includePattern = '**/*.{ts,tsx,js,jsx,py,java,cs,cpp,c,h,md,json,html,css}';
-        this.excludePattern = '**/{node_modules,.git}/**';
+        this.includePattern = '**/*.{ts,tsx,js,jsx,py,java,cs,cpp,c,h,go,rs,md,json,html,css}';
+        this.excludePattern = '**/{node_modules,.git,dist,out,build,target,coverage}/**';
         this.gitignoreScanThrottleMs = 2000;
         this.ollamaService = ollamaService;
-        // Store the vector DB in the extension's global storage or workspace storage
         const storagePath = context.storageUri?.fsPath || context.globalStorageUri.fsPath;
         if (!fs.existsSync(storagePath)) {
             fs.mkdirSync(storagePath, { recursive: true });
@@ -174,7 +201,7 @@ class RAGService {
             catch (e) {
                 logger_1.Logger.error(`Erro ao reindexar arquivo ${pathStr}.`, e);
             }
-        }, 1000); // 1 second debounce
+        }, 1000);
         this.debounceTimers.set(pathStr, timer);
     }
     async processFile(fileUri) {
@@ -189,8 +216,8 @@ class RAGService {
             }
             const document = await vscode.workspace.openTextDocument(fileUri);
             const content = document.getText();
-            // Skip large files or binaries (rudimentary check)
-            if (content.length > 50000)
+            // Skip oversized files or minified bundles
+            if (content.length > 60000 || content.length < 20)
                 return false;
             const contentHash = crypto.createHash('sha256').update(content).digest('hex');
             // Check if modified since last index via content hash
@@ -202,21 +229,23 @@ class RAGService {
             }
             // Remove old entries if they exist
             this.vectors = this.vectors.filter(v => v.filePath !== fileUri.fsPath);
-            // Generate Embedding
-            // Advanced Chunking: Semantic/Structural
+            // Generate Embedding with parallel chunking
             const chunks = this.semanticChunking(content, fileUri.fsPath);
-            for (const chunk of chunks) {
-                const contextText = `File: ${vscode.workspace.asRelativePath(fileUri.fsPath)}\nContent: ${chunk.text}`;
+            const relPath = vscode.workspace.asRelativePath(fileUri.fsPath);
+            // Parallel embedding generation (concurrency limit = 4)
+            const embeddedDocs = await (0, ragUtils_1.mapConcurrent)(chunks, 4, async (chunk) => {
+                const contextText = `File: ${relPath}\nContent: ${chunk.text}`;
                 const embedding = await this.ollamaService.generateEmbeddings(contextText);
-                this.vectors.push({
-                    id: `${fileUri.fsPath}-${Date.now()}-${Math.random()}`,
+                return {
+                    id: `${fileUri.fsPath}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                     filePath: fileUri.fsPath,
                     content: chunk.text,
                     contentHash: contentHash,
                     embedding: embedding,
                     timestamp: stats.mtimeMs
-                });
-            }
+                };
+            });
+            this.vectors.push(...embeddedDocs);
             return true;
         }
         catch (e) {
@@ -233,6 +262,10 @@ class RAGService {
             const found = await vscode.workspace.findFiles(include, exclude);
             const entries = await this.getGitignoreEntries(folder, forceRefresh);
             for (const fileUri of found) {
+                if (this.isIgnoredFilenameOrExtension(fileUri.fsPath)) {
+                    ignoredByGitignore++;
+                    continue;
+                }
                 if (entries.length > 0 && this.isIgnoredByGitignore(fileUri, entries)) {
                     ignoredByGitignore++;
                     continue;
@@ -241,6 +274,20 @@ class RAGService {
             }
         }
         return { files, ignoredByGitignore };
+    }
+    isIgnoredFilenameOrExtension(filePath) {
+        const base = path.basename(filePath).toLowerCase();
+        if (IGNORED_FILENAMES.has(base))
+            return true;
+        if (base.endsWith('.min.js') || base.endsWith('.min.css') || base.endsWith('.bundle.js') || base.endsWith('.map') || base.endsWith('.d.ts')) {
+            return true;
+        }
+        const segments = filePath.split(path.sep).map(s => s.toLowerCase());
+        for (const seg of segments) {
+            if (IGNORED_DIRECTORIES.has(seg))
+                return true;
+        }
+        return false;
     }
     async getGitignoreEntries(folder, forceRefresh = false) {
         const rootPath = folder.uri.fsPath;
@@ -314,11 +361,10 @@ class RAGService {
     }
     async shouldIndexFile(uri) {
         const filePath = uri.fsPath;
-        const extOk = /\.(ts|tsx|js|jsx|py|java|cs|cpp|c|h|md|json|html|css)$/i.test(filePath);
-        if (!extOk)
+        if (this.isIgnoredFilenameOrExtension(filePath))
             return false;
-        const normalized = filePath.split(path.sep);
-        if (normalized.includes('node_modules') || normalized.includes('.git'))
+        const extOk = /\.(ts|tsx|js|jsx|py|java|cs|cpp|c|h|go|rs|md|json|html|css)$/i.test(filePath);
+        if (!extOk)
             return false;
         const folder = vscode.workspace.getWorkspaceFolder(uri);
         if (!folder)
@@ -329,11 +375,17 @@ class RAGService {
         return true;
     }
     semanticChunking(text, filePath) {
-        const ext = path.extname(filePath);
+        const ext = path.extname(filePath).toLowerCase();
         if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) {
             return this.tsChunking(text, filePath);
         }
-        // Fallback or multi-language structural heuristic
+        if (ext === '.py') {
+            return (0, ragUtils_1.chunkPythonCode)(text);
+        }
+        if (ext === '.md' || ext === '.markdown') {
+            return (0, ragUtils_1.chunkMarkdown)(text);
+        }
+        // Multi-language structural heuristic
         return this.heuristicChunking(text);
     }
     tsChunking(text, filePath) {
@@ -360,7 +412,7 @@ class RAGService {
             ts.forEachChild(node, visitor);
         };
         visitor(sourceFile);
-        // If no chunks were extracted (e.g. only top level code), use heuristic
+        // If no chunks were extracted (e.g. only top level statements), use heuristic
         if (chunks.length === 0) {
             return this.heuristicChunking(text);
         }
@@ -387,37 +439,21 @@ class RAGService {
         if (currentChunk.trim()) {
             chunks.push({ text: currentChunk.trim(), type: 'chunk' });
         }
-        return chunks.filter(c => c.text.length > 50);
+        return chunks.filter(c => c.text.length > 40);
     }
     isStructuralLine(line) {
         const trimmed = line.trim();
-        return /^(export\s+)?(class|interface|function|const|let|var|def|public|private|protected|async)\s+\w+/.test(trimmed) ||
+        return /^(export\s+)?(class|interface|function|const|let|var|def|public|private|protected|async|fn|struct|impl|type)\s+\w+/.test(trimmed) ||
             (trimmed.includes('(') && trimmed.includes(')') && trimmed.endsWith('{'));
-    }
-    chunkText(text, maxSize) {
-        // Kept for backward compatibility or simple files
-        const chunks = [];
-        let currentChunk = '';
-        const lines = text.split('\n');
-        for (const line of lines) {
-            if ((currentChunk.length + line.length) > maxSize) {
-                chunks.push(currentChunk);
-                currentChunk = '';
-            }
-            currentChunk += line + '\n';
-        }
-        if (currentChunk.trim())
-            chunks.push(currentChunk);
-        return chunks;
     }
     async search(query, limit = 5) {
         if (this.vectors.length === 0)
             return [];
         const queries = [query];
-        // Advanced: Multi-query expansion
+        // Multi-query expansion
         try {
             const expandedQueries = await this.expandQuery(query);
-            queries.push(...expandedQueries.slice(0, 2)); // Limit to 2 additional variations (total 3)
+            queries.push(...expandedQueries.slice(0, 2));
         }
         catch (e) {
             logger_1.Logger.warn('Falha na expansão da query RAG.', e);
@@ -431,7 +467,6 @@ class RAGService {
             }
             else {
                 queryEmbedding = await this.ollamaService.generateEmbeddings(q);
-                // Keep cache small
                 if (this.embeddingCache.size > 100) {
                     const firstKey = this.embeddingCache.keys().next().value;
                     if (firstKey)
@@ -446,10 +481,10 @@ class RAGService {
                 let keywordBonus = 0;
                 for (const kw of keywords) {
                     if (doc.content.toLowerCase().includes(kw)) {
-                        keywordBonus += 0.05; // 5% bonus per keyword match
+                        keywordBonus += 0.05;
                     }
                 }
-                score += Math.min(keywordBonus, 0.2); // Cap bonus at 20%
+                score += Math.min(keywordBonus, 0.2);
                 const existing = allResults.get(doc.id);
                 if (!existing || score > existing.maxScore) {
                     allResults.set(doc.id, { ...doc, score, maxScore: score });
@@ -462,7 +497,6 @@ class RAGService {
         return sortedResults.slice(0, limit);
     }
     async expandQuery(query) {
-        // Cache for query expansion could also be added, but for now just limit use
         const prompt = `Como um assistente de busca técnica, gere 2 variações curtas da pergunta abaixo para melhorar a busca em código-fonte (RAG). 
 Pergunta: "${query}"
 Retorne apenas as variações, uma por linha, sem explicações.`;
@@ -479,7 +513,7 @@ Retorne apenas as variações, uma por linha, sem explicações.`;
     }
     cosineSimilarity(vecA, vecB) {
         if (!vecA || !vecB || vecA.length === 0 || vecA.length !== vecB.length) {
-            return 0; // Return 0 if dimensions don't match or invalid
+            return 0;
         }
         let dotProduct = 0;
         let normA = 0;

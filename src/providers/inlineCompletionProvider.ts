@@ -2,10 +2,12 @@ import * as vscode from 'vscode';
 import { OllamaService } from '../ollama';
 import { Logger } from '../utils/logger';
 
+import { buildFimPrompt, cleanInlineCompletion } from '../utils/fimPrompt';
+export { buildFimPrompt, cleanInlineCompletion };
+
 export class OllamaInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
     private _debounceTimer: NodeJS.Timeout | undefined;
-    private _debounceDelay = 500; // 500ms delay to avoid flooding Ollama
-    private _isGeneratng = false;
+    private _isGenerating = false;
 
     constructor(private ollamaService: OllamaService) {}
 
@@ -18,13 +20,15 @@ export class OllamaInlineCompletionProvider implements vscode.InlineCompletionIt
         
         const config = vscode.workspace.getConfiguration('ollama-code-diff');
         const enabled = config.get<boolean>('enableGhostText', true);
+        const debounceDelay = config.get<number>('completionDebounceMs', 350);
+        const modelName = config.get<string>('completionModelName', config.get<string>('modelName', 'qwen2.5-coder:1.5b-base'));
         
         if (!enabled) {
             return [];
         }
 
-        // Avoid triggering if manually triggered or if already generating
-        if (context.triggerKind === vscode.InlineCompletionTriggerKind.Automatic && this._isGeneratng) {
+        // Avoid triggering if already generating
+        if (context.triggerKind === vscode.InlineCompletionTriggerKind.Automatic && this._isGenerating) {
             return null;
         }
 
@@ -40,50 +44,44 @@ export class OllamaInlineCompletionProvider implements vscode.InlineCompletionIt
                     return;
                 }
 
-                this._isGeneratng = true;
+                this._isGenerating = true;
 
                 try {
-                    const prompt = this.buildPrompt(document, position);
-                    if (!prompt) {
+                    const prompt = this.buildPrompt(document, position, modelName);
+                    if (!prompt || token.isCancellationRequested) {
                         resolve(null);
                         return;
                     }
 
-                    // Use a specific method for completions or the generic generate
-                    // Ideally, we'd have a simpler/faster model config for this
-                    const completion = await this.ollamaService.generateCompletion(prompt);
+                    const rawCompletion = await this.ollamaService.generateCompletion(prompt);
+                    const cleaned = cleanInlineCompletion(rawCompletion);
                     
-                    if (completion && !token.isCancellationRequested) {
-                        const item = new vscode.InlineCompletionItem(completion, new vscode.Range(position, position));
+                    if (cleaned && !token.isCancellationRequested) {
+                        const item = new vscode.InlineCompletionItem(cleaned, new vscode.Range(position, position));
                         resolve([item]);
                     } else {
                         resolve(null);
                     }
                 } catch (error) {
-                    Logger.error('Error generating inline completion:', error);
+                    Logger.error('Erro ao gerar autocompletar inline:', error);
                     resolve(null);
                 } finally {
-                    this._isGeneratng = false;
+                    this._isGenerating = false;
                 }
-            }, this._debounceDelay);
+            }, Math.max(50, debounceDelay));
         });
     }
 
-    private buildPrompt(document: vscode.TextDocument, position: vscode.Position): string {
+    private buildPrompt(document: vscode.TextDocument, position: vscode.Position, modelName: string): string {
         const textBefore = document.getText(new vscode.Range(new vscode.Position(0, 0), position));
         const textAfter = document.getText(new vscode.Range(position, new vscode.Position(document.lineCount, 0)));
         
-        // Simple prompt structure for now. Can be optimized for FIM (Fill-In-Middle) models later.
-        // For qwen2.5-coder or codellama, a simple comment or FIM tokens might work best.
-        // Using a generic comment style for now.
-        
-        const language = document.languageId;
-        
-        // Truncate context to avoid huge prompts
-        const maxContextLines = 50;
-        const linesBefore = textBefore.split('\n').slice(-maxContextLines).join('\n');
-        const linesAfter = textAfter.split('\n').slice(0, 10).join('\n'); // Look ahead a bit
+        // Truncate context to keep completions fast and lightweight
+        const maxContextLinesBefore = 60;
+        const maxContextLinesAfter = 20;
+        const linesBefore = textBefore.split('\n').slice(-maxContextLinesBefore).join('\n');
+        const linesAfter = textAfter.split('\n').slice(0, maxContextLinesAfter).join('\n');
 
-        return `<PRE> ${linesBefore} <SUF> ${linesAfter} <MID>`;
+        return buildFimPrompt(linesBefore, linesAfter, modelName);
     }
 }

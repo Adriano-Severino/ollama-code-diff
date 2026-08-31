@@ -1061,7 +1061,7 @@ Create a comprehensive final analysis: [/INST]`;
           top_p: 0.9,
           num_predict: 50,
           num_ctx: 1024,
-          stop: ['<EOT>', '\n\n', '```'],
+          stop: ['<EOT>', '<|endoftext|>', '<|file_separator|>', '<｜fim end｜>', '<|fim_middle|>', '\n\n', '```'],
         },
       };
 

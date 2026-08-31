@@ -2,7 +2,7 @@
   "name": "ollama-code-diff",
   "displayName": "Ollama Code Diff",
   "description": "Criacao e edicao de codigo com diff usando Ollama",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "publisher": "adriano-severino",
   "repository": {
     "type": "git",
@@ -179,6 +179,13 @@
           "type": "string",
           "default": "qwen2.5-coder:1.5b-base",
           "description": "Modelo especifico para autocompletar (rapido)"
+        },
+        "ollama-code-diff.completionDebounceMs": {
+          "type": "number",
+          "default": 350,
+          "minimum": 50,
+          "maximum": 3000,
+          "description": "Tempo de espera (debounce em ms) antes de disparar o Ghost Text"
         },
         "ollama-code-diff.enableVerboseLogs": {
           "type": "boolean",

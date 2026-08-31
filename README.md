@@ -1,18 +1,22 @@
-## 🤖 Ollama Code Diff v2.0
+# 🤖 Ollama Code Diff v2.1
 
 =====================
 
-Uma extensão moderna do Visual Studio Code que integra modelos de IA locais via Ollama para torna-se seu **Par Programador Local**. Agora com **Ghost Text**, **Agente Autônomo** e **RAG**.
+Uma extensão moderna do Visual Studio Code que integra modelos de IA locais via Ollama para tornar-se seu **Par Programador Local**. Agora com **Ghost Text Multi-Modelo**, **Modo Plan Arquitetural**, **Agente Autônomo com Ferramentas Git**, **Ações em Blocos de Código** e **RAG Concorrente**.
 
 > 📘 **[Guia Completo de Uso (Walkthrough)](WALKTHROUGH.md)**: Leia o guia detalhado para aprender a usar todas as novas funções.
 
-### ✨ Novas Funcionalidades (v2.0)
+### ✨ Novas Funcionalidades (v2.1)
 
-*   **👻 Ghost Text**: Autocompletar inteligente em tempo real (estilo Copilot) enquanto digita.
-*   **🤖 Agente Autônomo**: Um modo de chat onde a IA pode executar ferramentas (criar arquivos, rodar comandos, ler código) para resolver tarefas complexas.
-*   **🧠 RAG (Busca Semântica)**: Indexe seu projeto e faça perguntas conceituais ("Como funciona a auth?") que a IA responde lendo os arquivos certos.
+*   **👻 Ghost Text Multi-Modelo**: Autocompletar inteligente Fill-In-The-Middle (FIM) com detecção automática de tokens para **Qwen 2.5 Coder**, **DeepSeek Coder**, **CodeLlama**, **StarCoder** e **CodeGemma**.
+*   **📋 Modo Plan**: Novo modo no Chat para planejamento arquitetural de software, estruturando tarefas complexas em escopo, análise de impacto e checklists acionáveis.
+*   **⚡ Ações Rápidas em Blocos de Código**: Barra de ferramentas integrada em cada bloco de código no chat com **📋 Copiar**, **📥 Inserir no Cursor** e **⚡ Aplicar ao Editor**.
+*   **🤖 Agente com Ferramentas Git**: O agente agora pode inspecionar o status do repositório (`gitstatus`), analisar diffs ativos (`gitdiff`) e gerar a árvore de diretórios (`filetree`).
+*   **🧠 RAG Concorrente & Multi-Linguagem**: Indexação com pool de trabalhadores concorrentes (4x mais rápida) e chunking semântico estruturado para **TypeScript/JavaScript**, **Python** e **Markdown**.
 *   **🔗 Contexto Inteligente**: Mencione arquivos com `@arquivo` ou fixe-os com **Pin (📌)** para dar contexto preciso à IA.
-*   **⚡ Slash Commands**: Use `/explain`, `/fix`, `/test` para ações rápidas.
+*   **⚡ Slash Commands**: Use `/explain`, `/fix`, `/test`, `/refactor` para ações rápidas.
+
+---
 
 ### ✨ Funcionalidades Principais (Clássicas)
 

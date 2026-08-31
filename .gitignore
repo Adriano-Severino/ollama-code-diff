@@ -1,3 +1,8 @@
 node_modules/
 .DS_Store
 dist/
+out/
+*.vsix
+src/**/*.js
+src/**/*.js.map
+.vscode-test/

@@ -77,9 +77,18 @@ export class ChatPanel implements vscode.WebviewViewProvider {
 
           if (mode === 'agent') await this.handleAgentMessage(userMessage);
           else if (mode === 'edit') await this.handleEditMessage(userMessage);
+          else if (mode === 'plan') await this.handlePlanMessage(userMessage);
           else await this.handleChatMessage(userMessage);
           break;
         }
+
+        case 'insertAtCursor':
+          await this.handleInsertAtCursor(message.code);
+          break;
+
+        case 'applyCode':
+          await this.handleApplyCode(message.code);
+          break;
 
         case 'cancelGeneration': {
           // 1) abort local controller (para interromper loops e sinalizar cancelamento)
@@ -405,6 +414,108 @@ export class ChatPanel implements vscode.WebviewViewProvider {
     }
   }
 
+  private async handlePlanMessage(userMessage: string) {
+    if (!this.view) return;
+
+    const abort = this.resetAbortController();
+    this.startGenerationUI('Modo Plan…', 'Estruturando plano de desenvolvimento…');
+
+    try {
+      await this.saveCurrentSession();
+
+      this.view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: '' });
+
+      const messageWithContext = await this.resolveMessageContext(userMessage);
+      const activeContext = this.getActiveEditorPatchContext();
+
+      const planPrompt = `Você é um Arquiteto de Software e Tech Lead especialista em planejamento e engenharia de software.
+Sua missão é gerar um plano de desenvolvimento técnico claro, modular e acionável para atender à solicitação do usuário.
+
+ESTRUTURA OBRIGATÓRIA DA RESPOSTA:
+## 🎯 1. Objetivo & Escopo
+Resumo executivo do que será construído/modificado e critérios de aceitação.
+
+## 🏗️ 2. Arquitetura & Análise de Impacto
+- **Arquivos Afetados**: Listar arquivos a criar, alterar ou remover (com caminhos relativos).
+- **Componentes e Interfaces**: Novas funções, tipos, APIs ou fluxos de controle.
+
+## 📋 3. Checklist Passo a Passo de Execução
+Lista ordenada numerada com caixas de seleção Markdown [ ] detalhando a implementação passo a passo.
+
+## 🧪 4. Estratégia de Teste & Riscos
+- Testes unitários / de integração necessários.
+- Potenciais efeitos colaterais ou quebras de compatibilidade.
+
+---
+CONTEXTO DO PROJETO/EDITOR:
+${activeContext}
+
+SOLICITAÇÃO DO USUÁRIO:
+${messageWithContext}
+`;
+
+      this.updateGenerationUI('Gerando plano arquitetural (stream)…');
+
+      let fullResponse = '';
+      for await (const part of this.ollamaService.chatStream(
+        planPrompt,
+        this.chatHistory as any,
+        { signal: abort.signal }
+      )) {
+        fullResponse += part;
+        this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
+      }
+
+      this.chatHistory.push({ role: 'assistant', content: fullResponse });
+      await this.saveCurrentSession();
+    } catch (error) {
+      if (this.isTimeoutError(error)) {
+        this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: 'Tempo limite atingido.' });
+      } else if (this.isAbortError(error)) {
+        this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: 'Geração cancelada.' });
+      } else {
+        const errorMessage = `Erro no modo Plan: ${error instanceof Error ? error.message : String(error)}`;
+        this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: errorMessage });
+        vscode.window.showErrorMessage(errorMessage);
+      }
+    } finally {
+      this.endGenerationUI();
+      this.currentAbort = undefined;
+    }
+  }
+
+  private async handleInsertAtCursor(code: string) {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('Abra um arquivo no editor para inserir o código.');
+      return;
+    }
+
+    if (!code) return;
+
+    try {
+      await editor.edit(editBuilder => {
+        editBuilder.insert(editor.selection.active, code);
+      });
+      vscode.window.showInformationMessage('Código inserido na posição do cursor.');
+    } catch (error) {
+      vscode.window.showErrorMessage(`Erro ao inserir código: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async handleApplyCode(code: string) {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('Abra um arquivo no editor para aplicar as alterações.');
+      return;
+    }
+
+    if (!code) return;
+
+    const range = editor.selection.isEmpty ? undefined : editor.selection;
+    await this.diffManager.showCodeDiff(editor, code, 'Código do Chat', range);
+  }
+
   private async handleAgentMessage(userMessage: string) {
     if (!this.view) return;
 
@@ -416,6 +527,8 @@ export class ChatPanel implements vscode.WebviewViewProvider {
     let shouldContinue = true;
     let completedWithinLimit = false;
     let lastAssistantTurn = '';
+
+
 
     const messageWithContext = await this.resolveMessageContext(userMessage);
 
@@ -432,6 +545,9 @@ AVAILABLE TOOLS:
 - editcode: Edit code in active editor or file selection with AI. args: { "instruction": "..." }
 - listfiles: List directory contents. args: { "directoryPath": "." }
 - findfile: Find files by pattern. args: { "pattern": "**/*.test.ts" }
+- filetree: Generate visual directory tree structure. args: { "directoryPath": ".", "maxDepth": 3 }
+- gitstatus: Check repository status (branch, modified/untracked files). args: {}
+- gitdiff: View active git diff (staged or unstaged). args: { "cached": false }
 - searchtext: Search text using git grep. args: { "query": "SearchTerm" }
 - searchsemantic: Semantic search (RAG). args: { "query": "How is X implemented?" }
 - openfile: Open file in editor. args: { "filePath": "path/to/file" }
@@ -604,6 +720,18 @@ Final Answer: ...`;
       case 'listfiles':
         return await this.listFiles(safeArgs.directoryPath);
 
+      case 'findfile':
+        return await this.findFile(safeArgs.pattern);
+
+      case 'filetree':
+        return await this.fileTree(safeArgs.directoryPath, this.asOptionalNumber(safeArgs.maxDepth) || 3);
+
+      case 'gitstatus':
+        return await this.gitStatus();
+
+      case 'gitdiff':
+        return await this.gitDiff(this.asBoolean(safeArgs.cached, false));
+
       case 'executevscodecommand':
         return await this.executeVscodeCommand(safeArgs.command, safeArgs.args);
 
@@ -621,9 +749,6 @@ Final Answer: ...`;
 
       case 'applydiff':
         return await this.applyDiff(safeArgs.diffContent);
-
-      case 'findfile':
-        return await this.findFile(safeArgs.pattern);
 
       case 'savefile':
         return await this.saveFile();
@@ -1314,6 +1439,85 @@ Final Answer: ...`;
     }
   }
 
+  private async gitStatus(): Promise<string> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) return 'Nenhum workspace aberto.';
+
+    const cwd = workspaceFolder.uri.fsPath;
+    return new Promise((resolve) => {
+      exec('git status --short --branch', { cwd }, (error, stdout, stderr) => {
+        if (error) {
+          resolve(`Erro ao verificar git status: ${stderr || error.message}`);
+          return;
+        }
+        resolve(`Git Status:\n${stdout.trim() || 'Repositório limpo, sem mudanças não commitadas.'}`);
+      });
+    });
+  }
+
+  private async gitDiff(cached?: boolean): Promise<string> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) return 'Nenhum workspace aberto.';
+
+    const cwd = workspaceFolder.uri.fsPath;
+    const cmd = cached ? 'git diff --cached' : 'git diff';
+    return new Promise((resolve) => {
+      exec(cmd, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+        if (error) {
+          resolve(`Erro ao verificar git diff: ${stderr || error.message}`);
+          return;
+        }
+        if (!stdout.trim()) {
+          resolve(`Nenhum diff ativo (${cached ? 'staged' : 'unstaged'}).`);
+          return;
+        }
+        const lines = stdout.split('\n');
+        const count = lines.length;
+        const preview = lines.slice(0, 100).join('\n');
+        resolve(`Git Diff (${count} linhas):\n${preview}${count > 100 ? '\n...[diff truncado nas primeiras 100 linhas]' : ''}`);
+      });
+    });
+  }
+
+  private async fileTree(dirPath?: string, maxDepth: number = 3): Promise<string> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) return 'Nenhum workspace aberto.';
+
+    const baseDir = dirPath ? path.resolve(workspaceFolder.uri.fsPath, dirPath) : workspaceFolder.uri.fsPath;
+    if (!this.isPathInsideRoot(workspaceFolder.uri.fsPath, baseDir)) {
+      return `Caminho fora do workspace: ${dirPath}`;
+    }
+
+    try {
+      const buildTree = async (currentDir: string, currentDepth: number, prefix: string): Promise<string[]> => {
+        if (currentDepth > maxDepth) return [];
+        const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+        const filtered = entries.filter(e => !['node_modules', '.git', 'dist', 'out', 'build', '.vscode-test'].includes(e.name));
+        
+        let output: string[] = [];
+        for (let i = 0; i < filtered.length; i++) {
+          const entry = filtered[i];
+          const isLast = i === filtered.length - 1;
+          const pointer = isLast ? '└── ' : '├── ';
+          const nextPrefix = prefix + (isLast ? '    ' : '│   ');
+
+          output.push(`${prefix}${pointer}${entry.name}${entry.isDirectory() ? '/' : ''}`);
+          if (entry.isDirectory() && currentDepth < maxDepth) {
+            const sub = await buildTree(path.join(currentDir, entry.name), currentDepth + 1, nextPrefix);
+            output.push(...sub);
+          }
+        }
+        return output;
+      };
+
+      const treeLines = await buildTree(baseDir, 1, '');
+      const rel = path.relative(workspaceFolder.uri.fsPath, baseDir) || '.';
+      return `Árvore de arquivos de "${rel}":\n${treeLines.slice(0, 80).join('\n')}${treeLines.length > 80 ? '\n...[árvore truncada]' : ''}`;
+    } catch (error) {
+      return `Erro ao gerar árvore de arquivos: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
   private async saveFile(): Promise<string> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return 'Nenhum editor ativo para salvar.';
@@ -1336,7 +1540,6 @@ Final Answer: ...`;
       return `Erro ao fechar arquivo: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
-
   private async getSelectedText(): Promise<string> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return 'Nenhum editor ativo. Abra um arquivo e selecione o código.';
