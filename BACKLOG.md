@@ -8,7 +8,6 @@ _(nenhuma)_
 
 ## Próximos
 
-- [ ] **Streaming na exportação HTML** — gerar o HTML incrementalmente durante respostas longas do agent.
 - [ ] **Busca no histórico de chats** — filtrar sessões por texto no overlay de histórico.
 - [ ] **Diff visual entre sessões** — comparar duas sessões de chat lado a lado.
 - [ ] **Notificações de conclusão** — som/notificação quando uma geração longa terminar com o painel oculto.
@@ -29,3 +28,4 @@ _(nenhuma)_
 - [x] **Autocomplete de slash commands** — digitar `/` no início da mensagem sugere comandos built-in e templates customizados com hints, navegável por teclado/mouse.
 - [x] **Métricas de uso por modo** — `RequestUsage` ganhou campo `mode` (chat/agent/edit/plan); resumo do `UsageTracker` agora quebra tokens e tempo por modo, com registros antigos agrupados em "outros".
 - [x] **Exportar sessão do histórico** — cada item do overlay de histórico ganhou botão ⤓ que exporta aquela sessão como HTML (mesmo fluxo da sessão atual).
+- [x] **Exportação durante geração** — `inProgressResponse` acompanha o stream (chat/plan); exportar no meio de uma resposta inclui o texto parcial marcado como "geração em andamento".

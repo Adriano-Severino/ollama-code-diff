@@ -63,6 +63,7 @@ class ChatPanel {
         this.chatHistory = [];
         this.currentMode = 'chat';
         this.pinnedFiles = new Set();
+        this.inProgressResponse = '';
         this.historyManager = new historyManager_1.HistoryManager(context);
         this.usageTracker = usageTracker ?? new usageMetrics_1.UsageTracker();
     }
@@ -272,21 +273,28 @@ class ChatPanel {
         const messages = session?.messages?.length
             ? session.messages
             : this.chatHistory.map(m => ({ role: m.role, content: m.content }));
-        await this.exportMessagesToHtml(session?.title, messages);
+        await this.exportMessagesToHtml(session?.title, messages, true);
     }
     async exportSessionById(sessionId) {
         const session = this.historyManager.getSession(sessionId);
         if (!session)
             return;
-        await this.exportMessagesToHtml(session.title, session.messages);
+        await this.exportMessagesToHtml(session.title, session.messages, sessionId === this.currentSessionId);
     }
-    async exportMessagesToHtml(title, messages) {
-        if (messages.length === 0) {
+    async exportMessagesToHtml(title, messages, includePartial = false) {
+        const exportMessages = [...messages];
+        if (includePartial && this.inProgressResponse.trim()) {
+            exportMessages.push({
+                role: 'assistant',
+                content: `${this.inProgressResponse}\n\n---\n*⚠️ Resposta parcial — a geração ainda está em andamento.*`
+            });
+        }
+        if (exportMessages.length === 0) {
             vscode.window.showInformationMessage('Não há mensagens para exportar.');
             return;
         }
         const rawTitle = title && title !== 'New Chat' ? title : 'chat-ollama';
-        const html = (0, chatExport_1.buildChatHtmlExport)(rawTitle, messages);
+        const html = (0, chatExport_1.buildChatHtmlExport)(rawTitle, exportMessages);
         const defaultName = `${rawTitle.replace(/[<>:"/\\|?*]/g, '_')}.html`;
         const defaultUri = vscode.workspace.workspaceFolders?.[0]
             ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName)
@@ -365,12 +373,14 @@ class ChatPanel {
         this.sendSlashCommands();
     }
     startGenerationUI(title, subtitle) {
+        this.inProgressResponse = '';
         this.view?.webview.postMessage({ type: 'generationStart', title, subtitle });
     }
     updateGenerationUI(subtitle) {
         this.view?.webview.postMessage({ type: 'generationStatus', subtitle });
     }
     endGenerationUI() {
+        this.inProgressResponse = '';
         this.view?.webview.postMessage({ type: 'generationEnd' });
     }
     resetAbortController() {
@@ -453,6 +463,7 @@ class ChatPanel {
             let fullResponse = '';
             for await (const part of this.ollamaService.chatStream(messageWithContext, this.chatHistory, { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'chat') })) {
                 fullResponse += part;
+                this.inProgressResponse = fullResponse;
                 this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
             }
             this.chatHistory.push({ role: 'assistant', content: fullResponse });
@@ -575,6 +586,7 @@ ${messageWithContext}
             let fullResponse = '';
             for await (const part of this.ollamaService.chatStream(planPrompt, this.chatHistory, { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'plan') })) {
                 fullResponse += part;
+                this.inProgressResponse = fullResponse;
                 this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
             }
             this.chatHistory.push({ role: 'assistant', content: fullResponse });

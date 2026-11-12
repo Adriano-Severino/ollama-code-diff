@@ -39,6 +39,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
 
   // Cancel support
   private currentAbort?: AbortController;
+  private inProgressResponse = '';
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -299,23 +300,31 @@ export class ChatPanel implements vscode.WebviewViewProvider {
       ? session.messages
       : this.chatHistory.map(m => ({ role: m.role, content: m.content }));
 
-    await this.exportMessagesToHtml(session?.title, messages);
+    await this.exportMessagesToHtml(session?.title, messages, true);
   }
 
   public async exportSessionById(sessionId: string): Promise<void> {
     const session = this.historyManager.getSession(sessionId);
     if (!session) return;
-    await this.exportMessagesToHtml(session.title, session.messages);
+    await this.exportMessagesToHtml(session.title, session.messages, sessionId === this.currentSessionId);
   }
 
-  private async exportMessagesToHtml(title: string | undefined, messages: ExportableMessage[]): Promise<void> {
-    if (messages.length === 0) {
+  private async exportMessagesToHtml(title: string | undefined, messages: ExportableMessage[], includePartial: boolean = false): Promise<void> {
+    const exportMessages = [...messages];
+    if (includePartial && this.inProgressResponse.trim()) {
+      exportMessages.push({
+        role: 'assistant',
+        content: `${this.inProgressResponse}\n\n---\n*⚠️ Resposta parcial — a geração ainda está em andamento.*`
+      });
+    }
+
+    if (exportMessages.length === 0) {
       vscode.window.showInformationMessage('Não há mensagens para exportar.');
       return;
     }
 
     const rawTitle = title && title !== 'New Chat' ? title : 'chat-ollama';
-    const html = buildChatHtmlExport(rawTitle, messages);
+    const html = buildChatHtmlExport(rawTitle, exportMessages);
 
     const defaultName = `${rawTitle.replace(/[<>:"/\\|?*]/g, '_')}.html`;
     const defaultUri = vscode.workspace.workspaceFolders?.[0]
@@ -408,6 +417,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
   }
 
   private startGenerationUI(title: string, subtitle: string) {
+    this.inProgressResponse = '';
     this.view?.webview.postMessage({ type: 'generationStart', title, subtitle });
   }
 
@@ -416,6 +426,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
   }
 
   private endGenerationUI() {
+    this.inProgressResponse = '';
     this.view?.webview.postMessage({ type: 'generationEnd' });
   }
 
@@ -511,6 +522,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'chat') }
       )) {
         fullResponse += part;
+        this.inProgressResponse = fullResponse;
         this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
       }
 
@@ -647,6 +659,7 @@ ${messageWithContext}
         { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'plan') }
       )) {
         fullResponse += part;
+        this.inProgressResponse = fullResponse;
         this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
       }
 
