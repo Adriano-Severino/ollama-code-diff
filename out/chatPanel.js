@@ -402,6 +402,20 @@ class ChatPanel {
         this.inProgressResponse = '';
         this.view?.webview.postMessage({ type: 'generationEnd' });
     }
+    notifyGenerationComplete(mode) {
+        const enabled = vscode.workspace.getConfiguration('ollama-code-diff')
+            .get('notifyOnCompletion', true);
+        if (!enabled || this.view?.visible)
+            return;
+        const labels = { chat: 'Chat', agent: 'Agent', edit: 'Edição', plan: 'Plano' };
+        const label = labels[mode] || mode;
+        vscode.window.showInformationMessage(`Ollama: geração de ${label} concluída.`, 'Ver chat')
+            .then(action => {
+            if (action === 'Ver chat') {
+                vscode.commands.executeCommand(`${ChatPanel.viewId}.focus`);
+            }
+        });
+    }
     resetAbortController() {
         // Cancela qualquer geração anterior
         try {
@@ -487,6 +501,7 @@ class ChatPanel {
             }
             this.chatHistory.push({ role: 'assistant', content: fullResponse });
             await this.saveCurrentSession();
+            this.notifyGenerationComplete('chat');
         }
         catch (error) {
             if (this.isTimeoutError(error)) {
@@ -528,6 +543,7 @@ class ChatPanel {
                 this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: noChangeMessage });
                 this.chatHistory.push({ role: 'assistant', content: noChangeMessage });
                 await this.saveCurrentSession();
+                this.notifyGenerationComplete('edit');
                 return;
             }
             if (!diffContent) {
@@ -547,6 +563,7 @@ class ChatPanel {
             this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: assistantMessage });
             this.chatHistory.push({ role: 'assistant', content: assistantMessage });
             await this.saveCurrentSession();
+            this.notifyGenerationComplete('edit');
         }
         catch (error) {
             if (this.isTimeoutError(error)) {
@@ -610,6 +627,7 @@ ${messageWithContext}
             }
             this.chatHistory.push({ role: 'assistant', content: fullResponse });
             await this.saveCurrentSession();
+            this.notifyGenerationComplete('plan');
         }
         catch (error) {
             if (this.isTimeoutError(error)) {
@@ -792,6 +810,7 @@ Final Answer: ...`;
                     this.view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: finalResponse });
                     this.chatHistory.push({ role: 'assistant', content: finalResponse });
                     await this.saveCurrentSession();
+                    this.notifyGenerationComplete('agent');
                 }
             }
             if (!completedWithinLimit && currentStep >= maxSteps && !abort.signal.aborted) {
@@ -804,6 +823,7 @@ Final Answer: ...`;
                 this.view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: finalResponse });
                 this.chatHistory.push({ role: 'assistant', content: finalResponse });
                 await this.saveCurrentSession();
+                this.notifyGenerationComplete('agent');
             }
         }
         catch (error) {

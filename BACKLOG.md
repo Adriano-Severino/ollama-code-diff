@@ -8,7 +8,9 @@ _(nenhuma)_
 
 ## Próximos
 
-- [ ] **Notificações de conclusão** — som/notificação quando uma geração longa terminar com o painel oculto.
+- [ ] **Regenerar última resposta** — botão ↻ na última mensagem do assistente para reenviar a mesma pergunta.
+- [ ] **Modelo por modo** — settings `modelChat`/`modelAgent`/`modelEdit`/`modelPlan` para usar modelos diferentes conforme o modo.
+- [ ] **Som na notificação de conclusão** — opção para tocar um beep/som do sistema junto à notificação.
 
 ## Concluídos
 
@@ -29,3 +31,4 @@ _(nenhuma)_
 - [x] **Exportação durante geração** — `inProgressResponse` acompanha o stream (chat/plan); exportar no meio de uma resposta inclui o texto parcial marcado como "geração em andamento".
 - [x] **Busca no histórico de chats** — campo de busca no overlay de histórico filtra sessões por título ou conteúdo das mensagens (case-insensitive, em tempo real).
 - [x] **Diff visual entre sessões** — botão ⇄ no histórico abre seletor de duas sessões; overlay mostra diff linha a linha (verde/vermelho) calculado com a lib `diff`, com contagem de linhas adicionadas/removidas.
+- [x] **Notificações de conclusão** — ao terminar chat/agent/edit/plan com o painel oculto, mostra notificação do VS Code com ação "Ver chat" (foca a view); controlado pela setting `ollama-code-diff.notifyOnCompletion`.
