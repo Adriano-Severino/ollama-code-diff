@@ -6,8 +6,8 @@ import * as ts from 'typescript';
 import ignore, { Ignore } from 'ignore';
 import { OllamaService } from '../ollama';
 import { Logger } from '../utils/logger';
-import { mapConcurrent, chunkPythonCode, chunkMarkdown, SemanticChunk } from '../utils/ragUtils';
-export { mapConcurrent, chunkPythonCode, chunkMarkdown, SemanticChunk };
+import { mapConcurrent, chunkPythonCode, chunkMarkdown, chunkBraceLanguage, chunkCss, chunkMarkup, chunkJson, SemanticChunk } from '../utils/ragUtils';
+export { mapConcurrent, chunkPythonCode, chunkMarkdown, chunkBraceLanguage, chunkCss, chunkMarkup, chunkJson, SemanticChunk };
 
 export interface VectorDocument {
     id: string;
@@ -401,7 +401,7 @@ export class RAGService {
         const filePath = uri.fsPath;
         if (this.isIgnoredFilenameOrExtension(filePath)) return false;
 
-        const extOk = /\.(ts|tsx|js|jsx|py|java|cs|cpp|c|h|go|rs|md|json|html|css)$/i.test(filePath);
+        const extOk = /\.(ts|tsx|js|jsx|py|java|cs|cpp|cc|cxx|c|h|hpp|go|rs|swift|kt|kts|scala|php|rb|md|markdown|json|html|htm|css|scss|sass|less|xml|svg|vue)$/i.test(filePath);
         if (!extOk) return false;
 
         const folder = vscode.workspace.getWorkspaceFolder(uri);
@@ -422,6 +422,18 @@ export class RAGService {
         }
         if (ext === '.md' || ext === '.markdown') {
             return chunkMarkdown(text);
+        }
+        if (['.java', '.cs', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.go', '.rs', '.swift', '.kt', '.kts', '.scala', '.php', '.rb'].includes(ext)) {
+            return chunkBraceLanguage(text);
+        }
+        if (['.css', '.scss', '.sass', '.less'].includes(ext)) {
+            return chunkCss(text);
+        }
+        if (['.html', '.htm', '.xml', '.svg', '.vue'].includes(ext)) {
+            return chunkMarkup(text);
+        }
+        if (ext === '.json') {
+            return chunkJson(text);
         }
 
         // Multi-language structural heuristic
@@ -493,7 +505,7 @@ export class RAGService {
 
     private isStructuralLine(line: string): boolean {
         const trimmed = line.trim();
-        return /^(export\s+)?(class|interface|function|const|let|var|def|public|private|protected|async|fn|struct|impl|type)\s+\w+/.test(trimmed) ||
+        return /^(export\s+)?(class|interface|function|const|let|var|def|public|private|protected|async|fn|func|struct|impl|trait|enum|record|namespace|package|module|mod|type|template|using|import)\s+\w+/.test(trimmed) ||
             (trimmed.includes('(') && trimmed.includes(')') && trimmed.endsWith('{'));
     }
 

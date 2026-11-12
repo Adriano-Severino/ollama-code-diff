@@ -11,9 +11,20 @@ import { Logger } from './utils/logger';
 import { parseAgentToolCall } from './utils/agentToolCallParser';
 import { chunkTextForTokenBudget, ChunkedTextForTokenBudget } from './utils/contextWindow';
 import { formatTerminalCommandForContext } from './utils/terminalCommand';
+import { findPromptTemplate, normalizeTemplateName, renderPromptTemplate } from './utils/promptTemplates';
+import { OllamaUsageStats, RequestUsage, UsageTracker, formatRequestUsage, toRequestUsage } from './utils/usageMetrics';
+import { ExportableMessage, buildChatHtmlExport } from './utils/chatExport';
+import { runGit, sanitizeGitRef, truncateGitText, getRecentCommitsLog, getCommitShow } from './utils/git';
 import { parseUnifiedDiff, sanitizeUnifiedDiff } from './utils/unifiedDiff';
 
 type ChatMsg = { role: 'system' | 'user' | 'assistant'; content: string };
+
+const BUILTIN_SLASH_COMMANDS: Array<{ name: string; hint: string }> = [
+  { name: 'explain', hint: 'Explicar código selecionado' },
+  { name: 'fix', hint: 'Encontrar problemas e propor correções' },
+  { name: 'test', hint: 'Gerar testes unitários' },
+  { name: 'refactor', hint: 'Refatorar código selecionado' }
+];
 
 export class ChatPanel implements vscode.WebviewViewProvider {
   public static readonly viewId = 'ollama-code-diff.chatView';
@@ -24,6 +35,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
   private pinnedFiles: Set<string> = new Set();
   private historyManager: HistoryManager;
   private currentSessionId: string | undefined;
+  private readonly usageTracker: UsageTracker;
 
   // Cancel support
   private currentAbort?: AbortController;
@@ -33,9 +45,24 @@ export class ChatPanel implements vscode.WebviewViewProvider {
     private ollamaService: OllamaService,
     private diffManager: DiffManager,
     private ragService: RAGService,
-    context: vscode.ExtensionContext
+    context: vscode.ExtensionContext,
+    usageTracker?: UsageTracker
   ) {
     this.historyManager = new HistoryManager(context);
+    this.usageTracker = usageTracker ?? new UsageTracker();
+  }
+
+  public getUsageTracker(): UsageTracker {
+    return this.usageTracker;
+  }
+
+  private handleUsageStats(stats: OllamaUsageStats, mode?: string): void {
+    const config = vscode.workspace.getConfiguration('ollama-code-diff');
+    if (!config.get<boolean>('enableUsageMetrics', true)) return;
+
+    const usage: RequestUsage = toRequestUsage(stats, mode);
+    this.usageTracker.record(usage);
+    Logger.info(`Uso Ollama: ${formatRequestUsage(usage)}`);
   }
 
   public resolveWebviewView(
@@ -53,6 +80,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
 
     webviewView.onDidDispose(() => {
+      this.saveCurrentSession().catch(() => { });
       try {
         this.currentAbort?.abort();
       } catch {
@@ -163,10 +191,31 @@ export class ChatPanel implements vscode.WebviewViewProvider {
         case 'deleteSession':
           await this.deleteSession(message.sessionId);
           break;
+
+        case 'exportChat':
+          await this.exportCurrentSession();
+          break;
+
+        case 'exportSession':
+          await this.exportSessionById(message.sessionId);
+          break;
+
+        case 'requestTemplates':
+          this.sendTemplatesList();
+          break;
+
+        case 'saveTemplate':
+          await this.savePromptTemplate(message.name, message.template);
+          break;
+
+        case 'deleteTemplate':
+          await this.deletePromptTemplate(message.name);
+          break;
       }
     });
 
     this.initializeSession();
+    this.sendSlashCommands();
   }
 
   private async initializeSession() {
@@ -221,19 +270,141 @@ export class ChatPanel implements vscode.WebviewViewProvider {
     const session = this.historyManager.getSession(this.currentSessionId);
     if (!session) return;
 
-    session.messages = this.chatHistory.map(m => ({
-      role: m.role,
-      content: m.content,
-      timestamp: Date.now()
-    }));
+    const previousMessages = session.messages;
+    session.messages = this.chatHistory.map((m, i) => {
+      const prev = previousMessages[i];
+      const keepTimestamp = prev && prev.role === m.role && prev.content === m.content;
+      return {
+        role: m.role,
+        content: m.content,
+        timestamp: keepTimestamp ? prev.timestamp : Date.now()
+      };
+    });
 
     session.lastModified = Date.now();
 
     if (session.title === 'New Chat' && this.chatHistory.length > 0) {
-      await this.historyManager.updateSessionTitle(session);
+      session.title = this.historyManager.updateSessionTitle(session);
     }
 
     await this.historyManager.saveSession(session);
+  }
+
+  public async exportCurrentSession(): Promise<void> {
+    const session = this.currentSessionId
+      ? this.historyManager.getSession(this.currentSessionId)
+      : undefined;
+
+    const messages: ExportableMessage[] = session?.messages?.length
+      ? session.messages
+      : this.chatHistory.map(m => ({ role: m.role, content: m.content }));
+
+    await this.exportMessagesToHtml(session?.title, messages);
+  }
+
+  public async exportSessionById(sessionId: string): Promise<void> {
+    const session = this.historyManager.getSession(sessionId);
+    if (!session) return;
+    await this.exportMessagesToHtml(session.title, session.messages);
+  }
+
+  private async exportMessagesToHtml(title: string | undefined, messages: ExportableMessage[]): Promise<void> {
+    if (messages.length === 0) {
+      vscode.window.showInformationMessage('Não há mensagens para exportar.');
+      return;
+    }
+
+    const rawTitle = title && title !== 'New Chat' ? title : 'chat-ollama';
+    const html = buildChatHtmlExport(rawTitle, messages);
+
+    const defaultName = `${rawTitle.replace(/[<>:"/\\|?*]/g, '_')}.html`;
+    const defaultUri = vscode.workspace.workspaceFolders?.[0]
+      ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName)
+      : undefined;
+
+    const saveUri = await vscode.window.showSaveDialog({
+      defaultUri,
+      filters: { 'HTML': ['html'] },
+      title: 'Exportar chat como HTML'
+    });
+    if (!saveUri) return;
+
+    await vscode.workspace.fs.writeFile(saveUri, Buffer.from(html, 'utf8'));
+
+    const open = await vscode.window.showInformationMessage(`Chat exportado para ${saveUri.fsPath}`, 'Abrir');
+    if (open === 'Abrir') {
+      await vscode.env.openExternal(saveUri);
+    }
+  }
+
+  private getSlashCommands(): Array<{ name: string; hint: string }> {
+    const custom = Object.keys(this.getPromptTemplatesRecord())
+      .map(name => ({ name: normalizeTemplateName(name), hint: 'Template customizado' }))
+      .filter(c => c.name.length > 0);
+    return [...BUILTIN_SLASH_COMMANDS, ...custom];
+  }
+
+  private sendSlashCommands(): void {
+    this.view?.webview.postMessage({ type: 'slashCommands', commands: this.getSlashCommands() });
+  }
+
+  private getPromptTemplatesRecord(): Record<string, string> {
+    const raw = vscode.workspace
+      .getConfiguration('ollama-code-diff')
+      .get<Record<string, unknown>>('promptTemplates', {});
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw ?? {})) {
+      if (typeof value === 'string') result[key] = value;
+    }
+    return result;
+  }
+
+  private sendTemplatesList(): void {
+    const templates = Object.entries(this.getPromptTemplatesRecord()).map(([name, template]) => ({ name, template }));
+    this.view?.webview.postMessage({ type: 'templatesList', templates });
+  }
+
+  private async savePromptTemplate(name: unknown, template: unknown): Promise<void> {
+    const normalizedName = normalizeTemplateName(String(name ?? ''));
+    const templateText = String(template ?? '').trim();
+
+    if (!normalizedName) {
+      vscode.window.showWarningMessage('Informe um nome para o template.');
+      return;
+    }
+    if (!templateText) {
+      vscode.window.showWarningMessage('O template não pode estar vazio.');
+      return;
+    }
+
+    const templates = this.getPromptTemplatesRecord();
+    const existingKey = Object.keys(templates).find(k => normalizeTemplateName(k) === normalizedName);
+    templates[existingKey ?? normalizedName] = templateText;
+
+    await vscode.workspace
+      .getConfiguration('ollama-code-diff')
+      .update('promptTemplates', templates, vscode.ConfigurationTarget.Global);
+
+    this.sendTemplatesList();
+    this.sendSlashCommands();
+    vscode.window.showInformationMessage(`Template "/${normalizedName}" salvo.`);
+  }
+
+  private async deletePromptTemplate(name: unknown): Promise<void> {
+    const normalizedName = normalizeTemplateName(String(name ?? ''));
+    if (!normalizedName) return;
+
+    const templates = this.getPromptTemplatesRecord();
+    const existingKey = Object.keys(templates).find(k => normalizeTemplateName(k) === normalizedName);
+    if (!existingKey) return;
+
+    delete templates[existingKey];
+    await vscode.workspace
+      .getConfiguration('ollama-code-diff')
+      .update('promptTemplates', templates, vscode.ConfigurationTarget.Global);
+
+    this.sendTemplatesList();
+    this.sendSlashCommands();
   }
 
   private startGenerationUI(title: string, subtitle: string) {
@@ -315,6 +486,19 @@ export class ChatPanel implements vscode.WebviewViewProvider {
           case '/refactor':
             messageWithContext = `Refatore o código abaixo para melhorar legibilidade e performance.\n${selection}\n${rest || ''}`;
             break;
+          default: {
+            const template = findPromptTemplate(command, this.getPromptTemplatesRecord());
+            if (template) {
+              const activeDocument = vscode.window.activeTextEditor?.document;
+              const rendered = renderPromptTemplate(template, {
+                input: rest,
+                selection,
+                file: activeDocument ? vscode.workspace.asRelativePath(activeDocument.uri, false) : '',
+                language: editor?.document.languageId || ''
+              });
+              messageWithContext = `${rendered}\n\n${messageWithContext}`;
+            }
+          }
         }
       }
 
@@ -324,7 +508,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
       for await (const part of this.ollamaService.chatStream(
         messageWithContext,
         this.chatHistory as any,
-        { signal: abort.signal }
+        { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'chat') }
       )) {
         fullResponse += part;
         this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
@@ -367,7 +551,7 @@ export class ChatPanel implements vscode.WebviewViewProvider {
       const patchPrompt = this.buildEditPatchPrompt(messageWithContext);
 
       this.updateGenerationUI('Gerando patch unified diff...');
-      const rawModelResponse = await this.ollamaService.generateCode(patchPrompt, { signal: abort.signal });
+      const rawModelResponse = await this.ollamaService.generateCode(patchPrompt, { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'edit') });
       const diffContent = this.extractUnifiedDiffContent(rawModelResponse);
 
       if (diffContent === '') {
@@ -460,7 +644,7 @@ ${messageWithContext}
       for await (const part of this.ollamaService.chatStream(
         planPrompt,
         this.chatHistory as any,
-        { signal: abort.signal }
+        { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'plan') }
       )) {
         fullResponse += part;
         this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
@@ -548,6 +732,9 @@ AVAILABLE TOOLS:
 - filetree: Generate visual directory tree structure. args: { "directoryPath": ".", "maxDepth": 3 }
 - gitstatus: Check repository status (branch, modified/untracked files). args: {}
 - gitdiff: View active git diff (staged or unstaged). args: { "cached": false }
+- gitlog: Show recent commit history. args: { "count": 10 }
+- gitshow: Show a specific commit (message, stat and patch). args: { "ref": "HEAD", "path": "optional/file/inside/repo" }
+- gitblame: Show blame/author info for file lines. args: { "filePath": "src/app.ts", "startLine": 1, "endLine": 50, "ref": "HEAD" }
 - searchtext: Search text using git grep. args: { "query": "SearchTerm" }
 - searchsemantic: Semantic search (RAG). args: { "query": "How is X implemented?" }
 - openfile: Open file in editor. args: { "filePath": "path/to/file" }
@@ -613,7 +800,7 @@ Final Answer: ...`;
         this.updateGenerationUI(`Agent step ${currentStep}/${maxSteps}…`);
 
         // 1) Get LLM response
-        const ollamaResponse = await this.ollamaService.chat(runHistory as any, { signal: abort.signal });
+        const ollamaResponse = await this.ollamaService.chat(runHistory as any, { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'agent') });
         lastAssistantTurn = ollamaResponse;
 
         // 2) Parse Thought/Plan and JSON tool call
@@ -731,6 +918,15 @@ Final Answer: ...`;
 
       case 'gitdiff':
         return await this.gitDiff(this.asBoolean(safeArgs.cached, false));
+
+      case 'gitlog':
+        return await this.gitLog(this.asOptionalNumber(safeArgs.count));
+
+      case 'gitshow':
+        return await this.gitShow(safeArgs.ref, safeArgs.path || safeArgs.filePath);
+
+      case 'gitblame':
+        return await this.gitBlame(safeArgs.filePath, this.asOptionalNumber(safeArgs.startLine), this.asOptionalNumber(safeArgs.endLine), safeArgs.ref);
 
       case 'executevscodecommand':
         return await this.executeVscodeCommand(safeArgs.command, safeArgs.args);
@@ -911,7 +1107,7 @@ Final Answer: ...`;
     try {
       this.view?.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Gerando código…' });
       const fullPrompt = this.buildGeneratePrompt(prompt, editor.document.languageId, this.getEditorContext(editor));
-      const generatedCode = await this.ollamaService.generateCode(fullPrompt, { signal: this.currentAbort?.signal });
+      const generatedCode = await this.ollamaService.generateCode(fullPrompt, { signal: this.currentAbort?.signal, onUsage: (s) => this.handleUsageStats(s, 'agent') });
 
       const cleanedCode = generatedCode.replace(/```[a-zA-Z]*\n?|\n?```/g, '').trim();
       await this.applyCodeChanges(cleanedCode);
@@ -944,7 +1140,7 @@ Final Answer: ...`;
       this.view?.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Editando código…' });
       const fullPrompt = this.buildEditPrompt(selectedCode, instruction, editor.document.languageId);
 
-      const editedCode = await this.ollamaService.generateCode(fullPrompt, { signal: this.currentAbort?.signal });
+      const editedCode = await this.ollamaService.generateCode(fullPrompt, { signal: this.currentAbort?.signal, onUsage: (s) => this.handleUsageStats(s, 'agent') });
 
       const cleanedCode = editedCode.replace(/```[a-zA-Z]*\n?|\n?```/g, '').trim();
       await this.applyCodeChanges(
@@ -1479,6 +1675,86 @@ Final Answer: ...`;
     });
   }
 
+  private async gitLog(count?: number): Promise<string> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) return 'Nenhum workspace aberto.';
+
+    const cwd = workspaceFolder.uri.fsPath;
+    const n = Math.min(Math.max(1, this.asOptionalNumber(count) || 10), 50);
+
+    try {
+      const output = await getRecentCommitsLog(cwd, n);
+      return output.trim()
+        ? `Git Log (últimos ${n} commits):\n${output}`
+        : 'Nenhum commit encontrado.';
+    } catch (error) {
+      return `Erro ao ler git log: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  private async gitShow(ref?: string, filePath?: string): Promise<string> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) return 'Nenhum workspace aberto.';
+
+    const cwd = workspaceFolder.uri.fsPath;
+
+    try {
+      const safeRef = sanitizeGitRef(this.asNonEmptyString(ref) || 'HEAD');
+
+      if (this.asNonEmptyString(filePath)) {
+        const relPath = this.asNonEmptyString(filePath)!;
+        const resolved = path.resolve(cwd, relPath);
+        if (!this.isPathInsideRoot(cwd, resolved)) {
+          return `Caminho fora do workspace: ${relPath}`;
+        }
+        const repoRel = path.relative(cwd, resolved).split(path.sep).join('/');
+        const output = await runGit(
+          ['show', '--stat', '--patch', '--find-renames', '--format=fuller', safeRef, '--', repoRel],
+          cwd
+        );
+        return `Git Show (${safeRef} -- ${repoRel}):\n${truncateGitText(output)}`;
+      }
+
+      const output = await getCommitShow(cwd, safeRef);
+      return `Git Show (${safeRef}):\n${output}`;
+    } catch (error) {
+      return `Erro ao ler git show: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  private async gitBlame(filePath?: string, startLine?: number, endLine?: number, ref?: string): Promise<string> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) return 'Nenhum workspace aberto.';
+
+    const cwd = workspaceFolder.uri.fsPath;
+    const relPath = this.asNonEmptyString(filePath);
+    if (!relPath) return 'Por favor, forneca o filePath para o git blame.';
+
+    const resolved = path.resolve(cwd, relPath);
+    if (!this.isPathInsideRoot(cwd, resolved)) {
+      return `Caminho fora do workspace: ${relPath}`;
+    }
+    const repoRel = path.relative(cwd, resolved).split(path.sep).join('/');
+
+    try {
+      const args: string[] = ['blame'];
+      const s = this.asOptionalNumber(startLine);
+      const e = this.asOptionalNumber(endLine);
+      if (s && e) {
+        args.push('-L', `${Math.max(1, s)},${Math.max(1, e)}`);
+      } else if (s) {
+        args.push('-L', `${Math.max(1, s)},${Math.max(1, s)}`);
+      }
+      const safeRef = sanitizeGitRef(this.asNonEmptyString(ref) || 'HEAD');
+      args.push(safeRef, '--', repoRel);
+
+      const output = await runGit(args, cwd);
+      return `Git Blame (${repoRel}${s ? ` linhas ${s}${e ? `-${e}` : '+'}` : ''}):\n${truncateGitText(output)}`;
+    } catch (error) {
+      return `Erro ao ler git blame: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
   private async fileTree(dirPath?: string, maxDepth: number = 3): Promise<string> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) return 'Nenhum workspace aberto.';
@@ -1644,7 +1920,7 @@ Final Answer: <concise plain-text summary with what was done, what remains, and 
     };
 
     try {
-      const response = await this.ollamaService.chat([...runHistory, forcedFinalPrompt] as any, { signal });
+      const response = await this.ollamaService.chat([...runHistory, forcedFinalPrompt] as any, { signal, onUsage: (s) => this.handleUsageStats(s, 'agent') });
       const finalAnswer = this.extractFinalAnswer(response).trim();
       return finalAnswer || undefined;
     } catch (error) {
@@ -1968,6 +2244,8 @@ ${normalizedFileText}
       <div class="left-controls">
         <button id="new-chat-button" class="icon-button" title="Novo Chat">+</button>
         <button id="history-button" class="icon-button" title="Histórico">≡</button>
+        <button id="export-button" class="icon-button" title="Exportar chat (HTML)">⤓</button>
+        <button id="templates-button" class="icon-button" title="Templates de prompt">🧩</button>
       </div>
 
       <div class="window-controls">
@@ -1981,6 +2259,20 @@ ${normalizedFileText}
         <button id="close-history">✖</button>
       </div>
       <div id="history-list" class="history-list"></div>
+    </div>
+
+    <div id="templates-overlay" class="history-overlay hidden">
+      <div class="history-header">
+        <span>Templates de Prompt</span>
+        <button id="close-templates">✖</button>
+      </div>
+      <div id="templates-list" class="history-list"></div>
+      <div class="template-form">
+        <div class="template-form-title">Novo / Editar</div>
+        <input id="template-name" type="text" placeholder="Nome do comando (ex: docs)" />
+        <textarea id="template-body" rows="4" placeholder="Template... variáveis: {input} {selection} {file} {language}"></textarea>
+        <button id="template-save" class="template-save-btn">Salvar</button>
+      </div>
     </div>
 
     <div id="pinned-files" class="pinned-files"></div>

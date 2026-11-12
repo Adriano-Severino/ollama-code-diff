@@ -60,6 +60,9 @@ class Logger {
         const full = details ? `${message}\n${details}` : message;
         this.write('ERROR', full);
     }
+    static show() {
+        this.channel?.show();
+    }
     static debug(message) {
         if (!this.verbose)
             return;

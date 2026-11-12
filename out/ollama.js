@@ -63,6 +63,22 @@ class OllamaService {
             // ignore
         }
     }
+    emitUsage(opts, model, part) {
+        if (!opts.onUsage || part?.done !== true)
+            return;
+        try {
+            opts.onUsage({
+                model,
+                promptTokens: typeof part.prompt_eval_count === 'number' ? part.prompt_eval_count : undefined,
+                completionTokens: typeof part.eval_count === 'number' ? part.eval_count : undefined,
+                totalDurationNs: typeof part.total_duration === 'number' ? part.total_duration : undefined,
+                evalDurationNs: typeof part.eval_duration === 'number' ? part.eval_duration : undefined
+            });
+        }
+        catch {
+            // ignore
+        }
+    }
     // Helper: attach AbortSignal -> call ollama.abort()
     attachAbort(signal) {
         if (!signal)
@@ -236,6 +252,7 @@ class OllamaService {
                 if (chunk) {
                     fullResponse += chunk;
                 }
+                this.emitUsage(opts, model, part);
             }
             const t1 = perf_hooks_1.performance.now();
             logger_1.Logger.debug(`Ollama gerou código em: ${(t1 - t0) / 1000} segundos`);
@@ -283,6 +300,7 @@ class OllamaService {
                 if (chunk) {
                     yield chunk;
                 }
+                this.emitUsage(opts, model, part);
             }
         }
         catch (error) {
@@ -851,6 +869,7 @@ Create a comprehensive final analysis: [/INST]`;
                 if (chunk) {
                     yield chunk;
                 }
+                this.emitUsage(opts, model, part);
             }
         }
         catch (error) {
@@ -899,6 +918,7 @@ Create a comprehensive final analysis: [/INST]`;
                 if (chunk) {
                     fullResponse += chunk;
                 }
+                this.emitUsage(opts, model, part);
             }
             return fullResponse;
         }

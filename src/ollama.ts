@@ -4,8 +4,9 @@ import { performance } from 'perf_hooks';
 import * as crypto from 'crypto';
 import { Logger } from './utils/logger';
 import { LruCache } from './utils/lruCache';
+import { OllamaUsageStats } from './utils/usageMetrics';
 
-type AbortableOpts = { signal?: AbortSignal };
+type AbortableOpts = { signal?: AbortSignal; onUsage?: (stats: OllamaUsageStats) => void };
 type TimeoutControl = { signal?: AbortSignal; refresh: () => void; dispose: () => void };
 
 export class OllamaService {
@@ -30,6 +31,21 @@ export class OllamaService {
     try {
       // ollama-js supports aborting all active requests for a client instance
       (this.ollama as any).abort?.();
+    } catch {
+      // ignore
+    }
+  }
+
+  private emitUsage(opts: AbortableOpts, model: string, part: any): void {
+    if (!opts.onUsage || part?.done !== true) return;
+    try {
+      opts.onUsage({
+        model,
+        promptTokens: typeof part.prompt_eval_count === 'number' ? part.prompt_eval_count : undefined,
+        completionTokens: typeof part.eval_count === 'number' ? part.eval_count : undefined,
+        totalDurationNs: typeof part.total_duration === 'number' ? part.total_duration : undefined,
+        evalDurationNs: typeof part.eval_duration === 'number' ? part.eval_duration : undefined
+      });
     } catch {
       // ignore
     }
@@ -230,6 +246,7 @@ export class OllamaService {
         if (chunk) {
           fullResponse += chunk;
         }
+        this.emitUsage(opts, model, part);
       }
 
       const t1 = performance.now();
@@ -283,6 +300,7 @@ export class OllamaService {
         if (chunk) {
           yield chunk;
         }
+        this.emitUsage(opts, model, part);
       }
     } catch (error) {
       Logger.error('Erro no stream do Ollama:', error);
@@ -944,6 +962,7 @@ Create a comprehensive final analysis: [/INST]`;
         if (chunk) {
           yield chunk;
         }
+        this.emitUsage(opts, model, part);
       }
     } catch (error) {
       Logger.error('Erro no stream do chat Ollama:', error);
@@ -995,6 +1014,7 @@ Create a comprehensive final analysis: [/INST]`;
         if (chunk) {
           fullResponse += chunk;
         }
+        this.emitUsage(opts, model, part);
       }
 
       return fullResponse;
