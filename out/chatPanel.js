@@ -43,9 +43,20 @@ const logger_1 = require("./utils/logger");
 const agentToolCallParser_1 = require("./utils/agentToolCallParser");
 const contextWindow_1 = require("./utils/contextWindow");
 const terminalCommand_1 = require("./utils/terminalCommand");
+const promptTemplates_1 = require("./utils/promptTemplates");
+const usageMetrics_1 = require("./utils/usageMetrics");
+const chatExport_1 = require("./utils/chatExport");
+const sessionDiff_1 = require("./utils/sessionDiff");
+const git_1 = require("./utils/git");
 const unifiedDiff_1 = require("./utils/unifiedDiff");
+const BUILTIN_SLASH_COMMANDS = [
+    { name: 'explain', hint: 'Explicar código selecionado' },
+    { name: 'fix', hint: 'Encontrar problemas e propor correções' },
+    { name: 'test', hint: 'Gerar testes unitários' },
+    { name: 'refactor', hint: 'Refatorar código selecionado' }
+];
 class ChatPanel {
-    constructor(extensionUri, ollamaService, diffManager, ragService, context) {
+    constructor(extensionUri, ollamaService, diffManager, ragService, context, usageTracker) {
         this.extensionUri = extensionUri;
         this.ollamaService = ollamaService;
         this.diffManager = diffManager;
@@ -53,7 +64,20 @@ class ChatPanel {
         this.chatHistory = [];
         this.currentMode = 'chat';
         this.pinnedFiles = new Set();
+        this.inProgressResponse = '';
         this.historyManager = new historyManager_1.HistoryManager(context);
+        this.usageTracker = usageTracker ?? new usageMetrics_1.UsageTracker();
+    }
+    getUsageTracker() {
+        return this.usageTracker;
+    }
+    handleUsageStats(stats, mode) {
+        const config = vscode.workspace.getConfiguration('ollama-code-diff');
+        if (!config.get('enableUsageMetrics', true))
+            return;
+        const usage = (0, usageMetrics_1.toRequestUsage)(stats, mode);
+        this.usageTracker.record(usage);
+        logger_1.Logger.info(`Uso Ollama: ${(0, usageMetrics_1.formatRequestUsage)(usage)}`);
     }
     resolveWebviewView(webviewView, _context, _token) {
         this.view = webviewView;
@@ -63,6 +87,7 @@ class ChatPanel {
         };
         webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
         webviewView.onDidDispose(() => {
+            this.saveCurrentSession().catch(() => { });
             try {
                 this.currentAbort?.abort();
             }
@@ -160,9 +185,28 @@ class ChatPanel {
                 case 'deleteSession':
                     await this.deleteSession(message.sessionId);
                     break;
+                case 'exportChat':
+                    await this.exportCurrentSession();
+                    break;
+                case 'exportSession':
+                    await this.exportSessionById(message.sessionId);
+                    break;
+                case 'compareSessions':
+                    this.compareSessions(message.sessionIdA, message.sessionIdB);
+                    break;
+                case 'requestTemplates':
+                    this.sendTemplatesList();
+                    break;
+                case 'saveTemplate':
+                    await this.savePromptTemplate(message.name, message.template);
+                    break;
+                case 'deleteTemplate':
+                    await this.deletePromptTemplate(message.name);
+                    break;
             }
         });
         this.initializeSession();
+        this.sendSlashCommands();
     }
     async initializeSession() {
         const sessions = this.historyManager.getSessions();
@@ -210,25 +254,167 @@ class ChatPanel {
         const session = this.historyManager.getSession(this.currentSessionId);
         if (!session)
             return;
-        session.messages = this.chatHistory.map(m => ({
-            role: m.role,
-            content: m.content,
-            timestamp: Date.now()
-        }));
+        const previousMessages = session.messages;
+        session.messages = this.chatHistory.map((m, i) => {
+            const prev = previousMessages[i];
+            const keepTimestamp = prev && prev.role === m.role && prev.content === m.content;
+            return {
+                role: m.role,
+                content: m.content,
+                timestamp: keepTimestamp ? prev.timestamp : Date.now()
+            };
+        });
         session.lastModified = Date.now();
         if (session.title === 'New Chat' && this.chatHistory.length > 0) {
-            await this.historyManager.updateSessionTitle(session);
+            session.title = this.historyManager.updateSessionTitle(session);
         }
         await this.historyManager.saveSession(session);
     }
+    async exportCurrentSession() {
+        const session = this.currentSessionId
+            ? this.historyManager.getSession(this.currentSessionId)
+            : undefined;
+        const messages = session?.messages?.length
+            ? session.messages
+            : this.chatHistory.map(m => ({ role: m.role, content: m.content }));
+        await this.exportMessagesToHtml(session?.title, messages, true);
+    }
+    compareSessions(sessionIdA, sessionIdB) {
+        const sessionA = this.historyManager.getSession(sessionIdA);
+        const sessionB = this.historyManager.getSession(sessionIdB);
+        if (!sessionA || !sessionB)
+            return;
+        const { lines, added, removed } = (0, sessionDiff_1.buildSessionDiff)(sessionA, sessionB);
+        this.view?.webview.postMessage({
+            type: 'sessionDiff',
+            titleA: sessionA.title || 'Sessão A',
+            titleB: sessionB.title || 'Sessão B',
+            added,
+            removed,
+            lines
+        });
+    }
+    async exportSessionById(sessionId) {
+        const session = this.historyManager.getSession(sessionId);
+        if (!session)
+            return;
+        await this.exportMessagesToHtml(session.title, session.messages, sessionId === this.currentSessionId);
+    }
+    async exportMessagesToHtml(title, messages, includePartial = false) {
+        const exportMessages = [...messages];
+        if (includePartial && this.inProgressResponse.trim()) {
+            exportMessages.push({
+                role: 'assistant',
+                content: `${this.inProgressResponse}\n\n---\n*⚠️ Resposta parcial — a geração ainda está em andamento.*`
+            });
+        }
+        if (exportMessages.length === 0) {
+            vscode.window.showInformationMessage('Não há mensagens para exportar.');
+            return;
+        }
+        const rawTitle = title && title !== 'New Chat' ? title : 'chat-ollama';
+        const html = (0, chatExport_1.buildChatHtmlExport)(rawTitle, exportMessages);
+        const defaultName = `${rawTitle.replace(/[<>:"/\\|?*]/g, '_')}.html`;
+        const defaultUri = vscode.workspace.workspaceFolders?.[0]
+            ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName)
+            : undefined;
+        const saveUri = await vscode.window.showSaveDialog({
+            defaultUri,
+            filters: { 'HTML': ['html'] },
+            title: 'Exportar chat como HTML'
+        });
+        if (!saveUri)
+            return;
+        await vscode.workspace.fs.writeFile(saveUri, Buffer.from(html, 'utf8'));
+        const open = await vscode.window.showInformationMessage(`Chat exportado para ${saveUri.fsPath}`, 'Abrir');
+        if (open === 'Abrir') {
+            await vscode.env.openExternal(saveUri);
+        }
+    }
+    getSlashCommands() {
+        const custom = Object.keys(this.getPromptTemplatesRecord())
+            .map(name => ({ name: (0, promptTemplates_1.normalizeTemplateName)(name), hint: 'Template customizado' }))
+            .filter(c => c.name.length > 0);
+        return [...BUILTIN_SLASH_COMMANDS, ...custom];
+    }
+    sendSlashCommands() {
+        this.view?.webview.postMessage({ type: 'slashCommands', commands: this.getSlashCommands() });
+    }
+    getPromptTemplatesRecord() {
+        const raw = vscode.workspace
+            .getConfiguration('ollama-code-diff')
+            .get('promptTemplates', {});
+        const result = {};
+        for (const [key, value] of Object.entries(raw ?? {})) {
+            if (typeof value === 'string')
+                result[key] = value;
+        }
+        return result;
+    }
+    sendTemplatesList() {
+        const templates = Object.entries(this.getPromptTemplatesRecord()).map(([name, template]) => ({ name, template }));
+        this.view?.webview.postMessage({ type: 'templatesList', templates });
+    }
+    async savePromptTemplate(name, template) {
+        const normalizedName = (0, promptTemplates_1.normalizeTemplateName)(String(name ?? ''));
+        const templateText = String(template ?? '').trim();
+        if (!normalizedName) {
+            vscode.window.showWarningMessage('Informe um nome para o template.');
+            return;
+        }
+        if (!templateText) {
+            vscode.window.showWarningMessage('O template não pode estar vazio.');
+            return;
+        }
+        const templates = this.getPromptTemplatesRecord();
+        const existingKey = Object.keys(templates).find(k => (0, promptTemplates_1.normalizeTemplateName)(k) === normalizedName);
+        templates[existingKey ?? normalizedName] = templateText;
+        await vscode.workspace
+            .getConfiguration('ollama-code-diff')
+            .update('promptTemplates', templates, vscode.ConfigurationTarget.Global);
+        this.sendTemplatesList();
+        this.sendSlashCommands();
+        vscode.window.showInformationMessage(`Template "/${normalizedName}" salvo.`);
+    }
+    async deletePromptTemplate(name) {
+        const normalizedName = (0, promptTemplates_1.normalizeTemplateName)(String(name ?? ''));
+        if (!normalizedName)
+            return;
+        const templates = this.getPromptTemplatesRecord();
+        const existingKey = Object.keys(templates).find(k => (0, promptTemplates_1.normalizeTemplateName)(k) === normalizedName);
+        if (!existingKey)
+            return;
+        delete templates[existingKey];
+        await vscode.workspace
+            .getConfiguration('ollama-code-diff')
+            .update('promptTemplates', templates, vscode.ConfigurationTarget.Global);
+        this.sendTemplatesList();
+        this.sendSlashCommands();
+    }
     startGenerationUI(title, subtitle) {
+        this.inProgressResponse = '';
         this.view?.webview.postMessage({ type: 'generationStart', title, subtitle });
     }
     updateGenerationUI(subtitle) {
         this.view?.webview.postMessage({ type: 'generationStatus', subtitle });
     }
     endGenerationUI() {
+        this.inProgressResponse = '';
         this.view?.webview.postMessage({ type: 'generationEnd' });
+    }
+    notifyGenerationComplete(mode) {
+        const enabled = vscode.workspace.getConfiguration('ollama-code-diff')
+            .get('notifyOnCompletion', true);
+        if (!enabled || this.view?.visible)
+            return;
+        const labels = { chat: 'Chat', agent: 'Agent', edit: 'Edição', plan: 'Plano' };
+        const label = labels[mode] || mode;
+        vscode.window.showInformationMessage(`Ollama: geração de ${label} concluída.`, 'Ver chat')
+            .then(action => {
+            if (action === 'Ver chat') {
+                vscode.commands.executeCommand(`${ChatPanel.viewId}.focus`);
+            }
+        });
     }
     resetAbortController() {
         // Cancela qualquer geração anterior
@@ -291,16 +477,31 @@ class ChatPanel {
                     case '/refactor':
                         messageWithContext = `Refatore o código abaixo para melhorar legibilidade e performance.\n${selection}\n${rest || ''}`;
                         break;
+                    default: {
+                        const template = (0, promptTemplates_1.findPromptTemplate)(command, this.getPromptTemplatesRecord());
+                        if (template) {
+                            const activeDocument = vscode.window.activeTextEditor?.document;
+                            const rendered = (0, promptTemplates_1.renderPromptTemplate)(template, {
+                                input: rest,
+                                selection,
+                                file: activeDocument ? vscode.workspace.asRelativePath(activeDocument.uri, false) : '',
+                                language: editor?.document.languageId || ''
+                            });
+                            messageWithContext = `${rendered}\n\n${messageWithContext}`;
+                        }
+                    }
                 }
             }
             this.updateGenerationUI('Gerando resposta (stream)…');
             let fullResponse = '';
-            for await (const part of this.ollamaService.chatStream(messageWithContext, this.chatHistory, { signal: abort.signal })) {
+            for await (const part of this.ollamaService.chatStream(messageWithContext, this.chatHistory, { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'chat') })) {
                 fullResponse += part;
+                this.inProgressResponse = fullResponse;
                 this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
             }
             this.chatHistory.push({ role: 'assistant', content: fullResponse });
             await this.saveCurrentSession();
+            this.notifyGenerationComplete('chat');
         }
         catch (error) {
             if (this.isTimeoutError(error)) {
@@ -335,13 +536,14 @@ class ChatPanel {
             const messageWithContext = await this.resolveMessageContext(userMessage);
             const patchPrompt = this.buildEditPatchPrompt(messageWithContext);
             this.updateGenerationUI('Gerando patch unified diff...');
-            const rawModelResponse = await this.ollamaService.generateCode(patchPrompt, { signal: abort.signal });
+            const rawModelResponse = await this.ollamaService.generateCode(patchPrompt, { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'edit') });
             const diffContent = this.extractUnifiedDiffContent(rawModelResponse);
             if (diffContent === '') {
                 const noChangeMessage = 'Nenhuma mudanca necessaria para a instrucao informada.';
                 this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: noChangeMessage });
                 this.chatHistory.push({ role: 'assistant', content: noChangeMessage });
                 await this.saveCurrentSession();
+                this.notifyGenerationComplete('edit');
                 return;
             }
             if (!diffContent) {
@@ -361,6 +563,7 @@ class ChatPanel {
             this.view.webview.postMessage({ type: 'replaceLastMessage', sender: 'ollama', text: assistantMessage });
             this.chatHistory.push({ role: 'assistant', content: assistantMessage });
             await this.saveCurrentSession();
+            this.notifyGenerationComplete('edit');
         }
         catch (error) {
             if (this.isTimeoutError(error)) {
@@ -417,12 +620,14 @@ ${messageWithContext}
 `;
             this.updateGenerationUI('Gerando plano arquitetural (stream)…');
             let fullResponse = '';
-            for await (const part of this.ollamaService.chatStream(planPrompt, this.chatHistory, { signal: abort.signal })) {
+            for await (const part of this.ollamaService.chatStream(planPrompt, this.chatHistory, { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'plan') })) {
                 fullResponse += part;
+                this.inProgressResponse = fullResponse;
                 this.view.webview.postMessage({ type: 'updateLastMessage', sender: 'ollama', text: fullResponse });
             }
             this.chatHistory.push({ role: 'assistant', content: fullResponse });
             await this.saveCurrentSession();
+            this.notifyGenerationComplete('plan');
         }
         catch (error) {
             if (this.isTimeoutError(error)) {
@@ -498,6 +703,9 @@ AVAILABLE TOOLS:
 - filetree: Generate visual directory tree structure. args: { "directoryPath": ".", "maxDepth": 3 }
 - gitstatus: Check repository status (branch, modified/untracked files). args: {}
 - gitdiff: View active git diff (staged or unstaged). args: { "cached": false }
+- gitlog: Show recent commit history. args: { "count": 10 }
+- gitshow: Show a specific commit (message, stat and patch). args: { "ref": "HEAD", "path": "optional/file/inside/repo" }
+- gitblame: Show blame/author info for file lines. args: { "filePath": "src/app.ts", "startLine": 1, "endLine": 50, "ref": "HEAD" }
 - searchtext: Search text using git grep. args: { "query": "SearchTerm" }
 - searchsemantic: Semantic search (RAG). args: { "query": "How is X implemented?" }
 - openfile: Open file in editor. args: { "filePath": "path/to/file" }
@@ -560,7 +768,7 @@ Final Answer: ...`;
                 currentStep++;
                 this.updateGenerationUI(`Agent step ${currentStep}/${maxSteps}…`);
                 // 1) Get LLM response
-                const ollamaResponse = await this.ollamaService.chat(runHistory, { signal: abort.signal });
+                const ollamaResponse = await this.ollamaService.chat(runHistory, { signal: abort.signal, onUsage: (s) => this.handleUsageStats(s, 'agent') });
                 lastAssistantTurn = ollamaResponse;
                 // 2) Parse Thought/Plan and JSON tool call
                 const parsedResponse = (0, agentToolCallParser_1.parseAgentToolCall)(ollamaResponse);
@@ -602,6 +810,7 @@ Final Answer: ...`;
                     this.view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: finalResponse });
                     this.chatHistory.push({ role: 'assistant', content: finalResponse });
                     await this.saveCurrentSession();
+                    this.notifyGenerationComplete('agent');
                 }
             }
             if (!completedWithinLimit && currentStep >= maxSteps && !abort.signal.aborted) {
@@ -614,6 +823,7 @@ Final Answer: ...`;
                 this.view.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: finalResponse });
                 this.chatHistory.push({ role: 'assistant', content: finalResponse });
                 await this.saveCurrentSession();
+                this.notifyGenerationComplete('agent');
             }
         }
         catch (error) {
@@ -659,6 +869,12 @@ Final Answer: ...`;
                 return await this.gitStatus();
             case 'gitdiff':
                 return await this.gitDiff(this.asBoolean(safeArgs.cached, false));
+            case 'gitlog':
+                return await this.gitLog(this.asOptionalNumber(safeArgs.count));
+            case 'gitshow':
+                return await this.gitShow(safeArgs.ref, safeArgs.path || safeArgs.filePath);
+            case 'gitblame':
+                return await this.gitBlame(safeArgs.filePath, this.asOptionalNumber(safeArgs.startLine), this.asOptionalNumber(safeArgs.endLine), safeArgs.ref);
             case 'executevscodecommand':
                 return await this.executeVscodeCommand(safeArgs.command, safeArgs.args);
             case 'openfile':
@@ -805,7 +1021,7 @@ Final Answer: ...`;
         try {
             this.view?.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Gerando código…' });
             const fullPrompt = this.buildGeneratePrompt(prompt, editor.document.languageId, this.getEditorContext(editor));
-            const generatedCode = await this.ollamaService.generateCode(fullPrompt, { signal: this.currentAbort?.signal });
+            const generatedCode = await this.ollamaService.generateCode(fullPrompt, { signal: this.currentAbort?.signal, onUsage: (s) => this.handleUsageStats(s, 'agent') });
             const cleanedCode = generatedCode.replace(/```[a-zA-Z]*\n?|\n?```/g, '').trim();
             await this.applyCodeChanges(cleanedCode);
             return 'Código gerado e aplicado no editor.';
@@ -833,7 +1049,7 @@ Final Answer: ...`;
         try {
             this.view?.webview.postMessage({ type: 'addMessage', sender: 'ollama', text: 'Editando código…' });
             const fullPrompt = this.buildEditPrompt(selectedCode, instruction, editor.document.languageId);
-            const editedCode = await this.ollamaService.generateCode(fullPrompt, { signal: this.currentAbort?.signal });
+            const editedCode = await this.ollamaService.generateCode(fullPrompt, { signal: this.currentAbort?.signal, onUsage: (s) => this.handleUsageStats(s, 'agent') });
             const cleanedCode = editedCode.replace(/```[a-zA-Z]*\n?|\n?```/g, '').trim();
             await this.applyCodeChanges(cleanedCode, rangeToReplace.start.line, rangeToReplace.start.character, rangeToReplace.end.line, rangeToReplace.end.character);
             return 'Código editado e aplicado no editor.';
@@ -1277,6 +1493,78 @@ Final Answer: ...`;
             });
         });
     }
+    async gitLog(count) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder)
+            return 'Nenhum workspace aberto.';
+        const cwd = workspaceFolder.uri.fsPath;
+        const n = Math.min(Math.max(1, this.asOptionalNumber(count) || 10), 50);
+        try {
+            const output = await (0, git_1.getRecentCommitsLog)(cwd, n);
+            return output.trim()
+                ? `Git Log (últimos ${n} commits):\n${output}`
+                : 'Nenhum commit encontrado.';
+        }
+        catch (error) {
+            return `Erro ao ler git log: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+    async gitShow(ref, filePath) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder)
+            return 'Nenhum workspace aberto.';
+        const cwd = workspaceFolder.uri.fsPath;
+        try {
+            const safeRef = (0, git_1.sanitizeGitRef)(this.asNonEmptyString(ref) || 'HEAD');
+            if (this.asNonEmptyString(filePath)) {
+                const relPath = this.asNonEmptyString(filePath);
+                const resolved = path.resolve(cwd, relPath);
+                if (!this.isPathInsideRoot(cwd, resolved)) {
+                    return `Caminho fora do workspace: ${relPath}`;
+                }
+                const repoRel = path.relative(cwd, resolved).split(path.sep).join('/');
+                const output = await (0, git_1.runGit)(['show', '--stat', '--patch', '--find-renames', '--format=fuller', safeRef, '--', repoRel], cwd);
+                return `Git Show (${safeRef} -- ${repoRel}):\n${(0, git_1.truncateGitText)(output)}`;
+            }
+            const output = await (0, git_1.getCommitShow)(cwd, safeRef);
+            return `Git Show (${safeRef}):\n${output}`;
+        }
+        catch (error) {
+            return `Erro ao ler git show: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
+    async gitBlame(filePath, startLine, endLine, ref) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder)
+            return 'Nenhum workspace aberto.';
+        const cwd = workspaceFolder.uri.fsPath;
+        const relPath = this.asNonEmptyString(filePath);
+        if (!relPath)
+            return 'Por favor, forneca o filePath para o git blame.';
+        const resolved = path.resolve(cwd, relPath);
+        if (!this.isPathInsideRoot(cwd, resolved)) {
+            return `Caminho fora do workspace: ${relPath}`;
+        }
+        const repoRel = path.relative(cwd, resolved).split(path.sep).join('/');
+        try {
+            const args = ['blame'];
+            const s = this.asOptionalNumber(startLine);
+            const e = this.asOptionalNumber(endLine);
+            if (s && e) {
+                args.push('-L', `${Math.max(1, s)},${Math.max(1, e)}`);
+            }
+            else if (s) {
+                args.push('-L', `${Math.max(1, s)},${Math.max(1, s)}`);
+            }
+            const safeRef = (0, git_1.sanitizeGitRef)(this.asNonEmptyString(ref) || 'HEAD');
+            args.push(safeRef, '--', repoRel);
+            const output = await (0, git_1.runGit)(args, cwd);
+            return `Git Blame (${repoRel}${s ? ` linhas ${s}${e ? `-${e}` : '+'}` : ''}):\n${(0, git_1.truncateGitText)(output)}`;
+        }
+        catch (error) {
+            return `Erro ao ler git blame: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    }
     async fileTree(dirPath, maxDepth = 3) {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder)
@@ -1426,7 +1714,7 @@ Respond with:
 Final Answer: <concise plain-text summary with what was done, what remains, and the next safest step>.`
         };
         try {
-            const response = await this.ollamaService.chat([...runHistory, forcedFinalPrompt], { signal });
+            const response = await this.ollamaService.chat([...runHistory, forcedFinalPrompt], { signal, onUsage: (s) => this.handleUsageStats(s, 'agent') });
             const finalAnswer = this.extractFinalAnswer(response).trim();
             return finalAnswer || undefined;
         }
@@ -1707,6 +1995,8 @@ ${normalizedFileText}
       <div class="left-controls">
         <button id="new-chat-button" class="icon-button" title="Novo Chat">+</button>
         <button id="history-button" class="icon-button" title="Histórico">≡</button>
+        <button id="export-button" class="icon-button" title="Exportar chat (HTML)">⤓</button>
+        <button id="templates-button" class="icon-button" title="Templates de prompt">🧩</button>
       </div>
 
       <div class="window-controls">
@@ -1717,9 +2007,40 @@ ${normalizedFileText}
     <div id="history-overlay" class="history-overlay hidden">
       <div class="history-header">
         <span>Histórico de Chats</span>
+        <button id="toggle-compare" title="Comparar sessões">⇄</button>
         <button id="close-history">✖</button>
       </div>
+      <input id="history-search" type="text" placeholder="Buscar chats..." />
+      <div id="history-compare-bar" class="history-compare-bar hidden">
+        <select id="compare-session-a" title="Sessão A"></select>
+        <span class="compare-vs">vs</span>
+        <select id="compare-session-b" title="Sessão B"></select>
+        <button id="run-compare" title="Comparar">⇄</button>
+        <button id="cancel-compare" title="Cancelar">✖</button>
+      </div>
       <div id="history-list" class="history-list"></div>
+    </div>
+    <div id="diff-overlay" class="history-overlay hidden">
+      <div class="history-header">
+        <span id="diff-title">Comparação de sessões</span>
+        <button id="close-diff">✖</button>
+      </div>
+      <div id="diff-stats" class="diff-stats"></div>
+      <div id="diff-content" class="diff-content"></div>
+    </div>
+
+    <div id="templates-overlay" class="history-overlay hidden">
+      <div class="history-header">
+        <span>Templates de Prompt</span>
+        <button id="close-templates">✖</button>
+      </div>
+      <div id="templates-list" class="history-list"></div>
+      <div class="template-form">
+        <div class="template-form-title">Novo / Editar</div>
+        <input id="template-name" type="text" placeholder="Nome do comando (ex: docs)" />
+        <textarea id="template-body" rows="4" placeholder="Template... variáveis: {input} {selection} {file} {language}"></textarea>
+        <button id="template-save" class="template-save-btn">Salvar</button>
+      </div>
     </div>
 
     <div id="pinned-files" class="pinned-files"></div>

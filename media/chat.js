@@ -19,9 +19,29 @@ const stopButton = document.getElementById('stop-button');
 // History Elements
 const newChatButton = document.getElementById('new-chat-button');
 const historyButton = document.getElementById('history-button');
+const exportButton = document.getElementById('export-button');
+const templatesButton = document.getElementById('templates-button');
 const historyOverlay = document.getElementById('history-overlay');
 const closeHistoryButton = document.getElementById('close-history');
 const historyList = document.getElementById('history-list');
+const historySearchInput = document.getElementById('history-search');
+const historyCompareBar = document.getElementById('history-compare-bar');
+const compareSessionA = document.getElementById('compare-session-a');
+const compareSessionB = document.getElementById('compare-session-b');
+const runCompareButton = document.getElementById('run-compare');
+const cancelCompareButton = document.getElementById('cancel-compare');
+const toggleCompareButton = document.getElementById('toggle-compare');
+const diffOverlay = document.getElementById('diff-overlay');
+const diffTitle = document.getElementById('diff-title');
+const diffStats = document.getElementById('diff-stats');
+const diffContent = document.getElementById('diff-content');
+const closeDiffButton = document.getElementById('close-diff');
+const templatesOverlay = document.getElementById('templates-overlay');
+const closeTemplatesButton = document.getElementById('close-templates');
+const templatesList = document.getElementById('templates-list');
+const templateNameInput = document.getElementById('template-name');
+const templateBodyInput = document.getElementById('template-body');
+const templateSaveButton = document.getElementById('template-save');
 
 const INPUT_PLACEHOLDER_BY_MODE = {
   chat: 'Pergunte algo ou digite /explain, /fix, /test, /refactor...',
@@ -31,6 +51,8 @@ const INPUT_PLACEHOLDER_BY_MODE = {
 };
 
 let availableFiles = [];
+let slashCommands = [];
+let suggestionMode = 'file'; // 'file' | 'command'
 let isProcessing = false;
 let processingStartTime = null;
 let elapsedTimeInterval = null;
@@ -54,6 +76,105 @@ if (historyButton) {
     if (!historyOverlay.classList.contains('hidden')) {
       vscode.postMessage({ command: 'requestHistory' });
     }
+  });
+}
+
+if (exportButton) {
+  exportButton.addEventListener('click', () => {
+    vscode.postMessage({ command: 'exportChat' });
+  });
+}
+
+if (templatesButton) {
+  templatesButton.addEventListener('click', () => {
+    templatesOverlay.classList.toggle('hidden');
+    historyOverlay.classList.add('hidden');
+    if (!templatesOverlay.classList.contains('hidden')) {
+      vscode.postMessage({ command: 'requestTemplates' });
+    }
+  });
+}
+
+if (closeTemplatesButton) {
+  closeTemplatesButton.addEventListener('click', () => {
+    templatesOverlay.classList.add('hidden');
+  });
+}
+
+if (templateSaveButton) {
+  templateSaveButton.addEventListener('click', () => {
+    const name = templateNameInput.value.trim();
+    const template = templateBodyInput.value;
+    if (!name || !template.trim()) return;
+    vscode.postMessage({ command: 'saveTemplate', name, template });
+    templateNameInput.value = '';
+    templateBodyInput.value = '';
+  });
+}
+
+if (historySearchInput) {
+  historySearchInput.addEventListener('input', () => {
+    renderHistoryList(historySessions, historySearchInput.value);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function populateCompareSelects() {
+  [compareSessionA, compareSessionB].forEach(select => {
+    select.innerHTML = '';
+    historySessions.forEach(session => {
+      const option = document.createElement('option');
+      option.value = session.id;
+      option.textContent = session.title || 'Sem título';
+      select.appendChild(option);
+    });
+  });
+  if (historySessions.length > 1 && compareSessionB.options.length > 1) {
+    compareSessionB.selectedIndex = 1;
+  }
+}
+
+function renderSessionDiff(message) {
+  diffTitle.textContent = `${message.titleA || 'Sessão A'}  ⇄  ${message.titleB || 'Sessão B'}`;
+  diffStats.innerHTML = `<span class="diff-added">+${message.added} linhas</span> <span class="diff-removed">−${message.removed} linhas</span>`;
+  diffContent.innerHTML = (message.lines || [])
+    .map(l => `<div class="diff-line diff-${l.type}">${l.type === 'add' ? '+' : l.type === 'remove' ? '−' : ' '} ${escapeHtml(l.content)}</div>`)
+    .join('');
+  diffOverlay.classList.remove('hidden');
+  historyOverlay.classList.add('hidden');
+}
+
+if (toggleCompareButton) {
+  toggleCompareButton.addEventListener('click', () => {
+    const show = historyCompareBar.classList.contains('hidden');
+    historyCompareBar.classList.toggle('hidden');
+    if (show) populateCompareSelects();
+  });
+}
+
+if (cancelCompareButton) {
+  cancelCompareButton.addEventListener('click', () => {
+    historyCompareBar.classList.add('hidden');
+  });
+}
+
+if (runCompareButton) {
+  runCompareButton.addEventListener('click', () => {
+    const idA = compareSessionA.value;
+    const idB = compareSessionB.value;
+    if (!idA || !idB || idA === idB) return;
+    vscode.postMessage({ command: 'compareSessions', sessionIdA: idA, sessionIdB: idB });
+  });
+}
+
+if (closeDiffButton) {
+  closeDiffButton.addEventListener('click', () => {
+    diffOverlay.classList.add('hidden');
   });
 }
 
@@ -112,10 +233,25 @@ if (chatInput) {
     if (this.value === '') this.style.height = 'auto';
   });
 
-  // @ mentions
+  // @ mentions and / slash commands
   chatInput.addEventListener('input', function () {
     const text = chatInput.value;
     const cursorPosition = chatInput.selectionStart;
+
+    // Slash command completion: only at the start of the message, inside the first token
+    if (text.startsWith('/')) {
+      const firstSpace = text.indexOf(' ');
+      const inCommandToken = firstSpace === -1 || cursorPosition <= firstSpace;
+      if (inCommandToken && cursorPosition >= 1) {
+        const query = text.substring(1, cursorPosition);
+        if (!query.includes(' ')) {
+          suggestionMode = 'command';
+          showSlashSuggestions(query);
+          return;
+        }
+      }
+    }
+
     const lastAt = text.lastIndexOf('@', cursorPosition - 1);
 
     if (lastAt !== -1) {
@@ -134,9 +270,15 @@ if (chatInput) {
       e.preventDefault();
 
       if (suggestionsDiv.style.display === 'block') {
-        const active = suggestionsDiv.querySelector('.suggestion-item.selected');
-        if (active) selectSuggestion(active.textContent);
-        else if (suggestionsDiv.firstChild) selectSuggestion(suggestionsDiv.firstChild.textContent);
+        const active = suggestionsDiv.querySelector('.suggestion-item.selected') || suggestionsDiv.firstChild;
+        if (active) {
+          if (suggestionMode === 'command') {
+            const name = active.dataset.commandName || active.textContent.split(' ')[0].replace('/', '');
+            selectSlashSuggestion(name);
+          } else {
+            selectSuggestion(active.textContent);
+          }
+        }
       } else {
         sendMessage();
       }
@@ -229,6 +371,7 @@ function updateInputPlaceholder() {
 }
 
 function showSuggestions(query) {
+  suggestionMode = 'file';
   const matches = availableFiles.filter(file => file.toLowerCase().includes(query.toLowerCase()));
   if (matches.length === 0) { hideSuggestions(); return; }
 
@@ -243,6 +386,39 @@ function showSuggestions(query) {
   });
 
   suggestionsDiv.style.display = 'block';
+}
+
+function showSlashSuggestions(query) {
+  const q = query.toLowerCase();
+  const matches = slashCommands.filter(c => c.name.toLowerCase().includes(q));
+  if (matches.length === 0) { hideSuggestions(); return; }
+
+  suggestionsDiv.innerHTML = '';
+  matches.slice(0, 10).forEach((cmd, index) => {
+    const div = document.createElement('div');
+    div.className = 'suggestion-item';
+    if (index === 0) div.classList.add('selected');
+    div.dataset.commandName = cmd.name;
+    div.textContent = `/${cmd.name} — ${cmd.hint || ''}`;
+    div.onclick = () => selectSlashSuggestion(cmd.name);
+    suggestionsDiv.appendChild(div);
+  });
+
+  suggestionsDiv.style.display = 'block';
+}
+
+function selectSlashSuggestion(name) {
+  if (!chatInput) return;
+  const text = chatInput.value;
+  const cursorPosition = chatInput.selectionStart;
+  const firstSpace = text.indexOf(' ');
+  const end = firstSpace === -1 ? text.length : firstSpace;
+  const suffix = text.substring(end);
+
+  chatInput.value = `/${name}${suffix || ' '}`;
+  chatInput.selectionStart = chatInput.selectionEnd = chatInput.value.length;
+  chatInput.focus();
+  hideSuggestions();
 }
 
 function hideSuggestions() {
@@ -639,18 +815,54 @@ function renderPinnedFiles(files) {
   });
 }
 
-function renderHistoryList(sessions) {
+let historySessions = [];
+
+function sessionMatchesQuery(session, query) {
+  const q = query.toLowerCase();
+  if ((session.title || '').toLowerCase().includes(q)) return true;
+  return (session.messages || []).some(m => (m.content || '').toLowerCase().includes(q));
+}
+
+function renderHistoryList(sessions, query = '') {
   historyList.innerHTML = '';
-  sessions.forEach(session => {
+  const filtered = query.trim()
+    ? sessions.filter(s => sessionMatchesQuery(s, query.trim()))
+    : sessions;
+
+  if (filtered.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'history-item';
+    empty.innerHTML = '<span class="title" style="opacity:0.6">Nenhum chat encontrado.</span>';
+    historyList.appendChild(empty);
+    return;
+  }
+
+  filtered.forEach(session => {
     const div = document.createElement('div');
     div.className = 'history-item';
 
     const titleSpan = document.createElement('span');
     titleSpan.className = 'title';
     titleSpan.textContent = session.title;
+    titleSpan.title = session.title;
     titleSpan.onclick = () => {
       vscode.postMessage({ command: 'loadSession', sessionId: session.id });
       historyOverlay.classList.add('hidden');
+    };
+
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'date';
+    dateSpan.textContent = session.lastModified
+      ? new Date(session.lastModified).toLocaleDateString()
+      : '';
+
+    const exportBtn = document.createElement('span');
+    exportBtn.className = 'delete-btn';
+    exportBtn.textContent = '⤓';
+    exportBtn.title = 'Exportar como HTML';
+    exportBtn.onclick = (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ command: 'exportSession', sessionId: session.id });
     };
 
     const deleteBtn = document.createElement('span');
@@ -663,9 +875,64 @@ function renderHistoryList(sessions) {
       }
     };
 
-    div.appendChild(titleSpan);
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'info';
+    infoDiv.appendChild(titleSpan);
+    infoDiv.appendChild(dateSpan);
+
+    div.appendChild(infoDiv);
+    div.appendChild(exportBtn);
     div.appendChild(deleteBtn);
     historyList.appendChild(div);
+  });
+}
+
+function renderTemplatesList(templates) {
+  templatesList.innerHTML = '';
+  if (!templates || templates.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'history-item';
+    empty.innerHTML = '<span class="title" style="opacity:0.6">Nenhum template. Crie um abaixo.</span>';
+    templatesList.appendChild(empty);
+    return;
+  }
+
+  templates.forEach(t => {
+    const div = document.createElement('div');
+    div.className = 'history-item';
+
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'info';
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'title';
+    titleSpan.textContent = `/${t.name}`;
+    titleSpan.title = t.template;
+    titleSpan.onclick = () => {
+      templateNameInput.value = t.name;
+      templateBodyInput.value = t.template;
+    };
+
+    const previewSpan = document.createElement('span');
+    previewSpan.className = 'date';
+    previewSpan.textContent = t.template.length > 80 ? t.template.substring(0, 80) + '…' : t.template;
+
+    infoDiv.appendChild(titleSpan);
+    infoDiv.appendChild(previewSpan);
+
+    const deleteBtn = document.createElement('span');
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.textContent = '🗑️';
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm(`Excluir o template "/${t.name}"?`)) {
+        vscode.postMessage({ command: 'deleteTemplate', name: t.name });
+      }
+    };
+
+    div.appendChild(infoDiv);
+    div.appendChild(deleteBtn);
+    templatesList.appendChild(div);
   });
 }
 
@@ -718,7 +985,21 @@ window.addEventListener('message', event => {
       break;
 
     case 'historyList':
-      renderHistoryList(message.sessions);
+      historySessions = message.sessions || [];
+      renderHistoryList(historySessions, historySearchInput ? historySearchInput.value : '');
+      if (!historyCompareBar.classList.contains('hidden')) populateCompareSelects();
+      break;
+
+    case 'sessionDiff':
+      renderSessionDiff(message);
+      break;
+
+    case 'templatesList':
+      renderTemplatesList(message.templates);
+      break;
+
+    case 'slashCommands':
+      slashCommands = message.commands || [];
       break;
 
     case 'addMessage':

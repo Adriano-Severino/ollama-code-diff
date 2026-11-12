@@ -6,6 +6,13 @@ import { OllamaInlineCompletionProvider } from './providers/inlineCompletionProv
 import { OllamaQuickFixProvider } from './providers/quickFixProvider';
 import { RAGService } from './services/ragService';
 import { Logger } from './utils/logger';
+import { UsageTracker, RequestUsage, formatDuration, formatRequestUsage, formatTokens } from './utils/usageMetrics';
+import {
+    isGitRepository,
+    getCommitShow,
+    getRecentCommitsLog,
+    buildCommitAnalysisPrompt
+} from './utils/git';
 
 
 
@@ -18,8 +25,38 @@ export function activate(context: vscode.ExtensionContext) {
     // Initialize RAG Service early
     const ragService = new RAGService(context, ollamaService);
 
+    const usageTracker = new UsageTracker();
+
+    const USAGE_STORAGE_KEY = 'ollama-usage-metrics';
+    const USAGE_MAX_RECORDS = 500;
+
+    const metricsStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+    metricsStatusBar.command = 'ollama-code-diff.showUsageMetrics';
+    const updateMetricsStatusBar = (usage: RequestUsage) => {
+        metricsStatusBar.text = `$(zap) ${formatTokens(usage.completionTokens)} tok · ${formatDuration(usage.durationMs)}`;
+        metricsStatusBar.tooltip = `Ultima requisicao Ollama\n${formatRequestUsage(usage)}\nClique para ver o resumo de uso`;
+        metricsStatusBar.show();
+    };
+
+    const persistUsageMetrics = () => {
+        const requests = usageTracker.getRequests();
+        context.globalState.update(USAGE_STORAGE_KEY, requests.slice(-USAGE_MAX_RECORDS));
+    };
+
+    // Restaura metricas de sessoes anteriores (seed antes de ligar o listener)
+    const savedUsage = context.globalState.get<RequestUsage[]>(USAGE_STORAGE_KEY, []);
+    for (const usage of savedUsage) {
+        usageTracker.record(usage);
+    }
+    const lastUsage = savedUsage[savedUsage.length - 1];
+    if (lastUsage) updateMetricsStatusBar(lastUsage);
+
     // Pass ragService to ChatPanel
-    const chatPanel = new ChatPanel(context.extensionUri, ollamaService, diffManager, ragService, context);
+    const chatPanel = new ChatPanel(context.extensionUri, ollamaService, diffManager, ragService, context, usageTracker);
+    usageTracker.onDidRecord = (usage) => {
+        updateMetricsStatusBar(usage);
+        persistUsageMetrics();
+    };
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ChatPanel.viewId, chatPanel)
@@ -79,6 +116,20 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
 
+    const analyzeCommitCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.analyzeCommit',
+        async () => {
+            await handleAnalyzeCommit(ollamaService);
+        }
+    );
+
+    const analyzeRecentCommitsCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.analyzeRecentCommits',
+        async () => {
+            await handleAnalyzeRecentCommits(ollamaService);
+        }
+    );
+
     const analyzeMultipleFilesCommand = vscode.commands.registerCommand(
         'ollama-code-diff.analyzeMultipleFiles',
         async () => {
@@ -128,6 +179,21 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
 
+    const exportChatCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.exportChat',
+        async () => {
+            await chatPanel.exportCurrentSession();
+        }
+    );
+
+    const showUsageMetricsCommand = vscode.commands.registerCommand(
+        'ollama-code-diff.showUsageMetrics',
+        async () => {
+            Logger.info(chatPanel.getUsageTracker().formatSummary());
+            Logger.show();
+        }
+    );
+
     const lspQuickFixCommand = vscode.commands.registerCommand(
         'ollama-code-diff.lspQuickFix',
         async () => {
@@ -137,12 +203,17 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         statusBarButton,
+        metricsStatusBar,
+        exportChatCommand,
+        showUsageMetricsCommand,
         showMenuCommand,
         showConfigurationMenuCommand,
         generateCodeCommand,
         editCodeCommand,
         analyzeFileCommand,
         analyzeProjectCommand,
+        analyzeCommitCommand,
+        analyzeRecentCommitsCommand,
         analyzeMultipleFilesCommand,
         showDiffCommand,
         undoLastAppliedChangesCommand,
@@ -465,6 +536,16 @@ async function showOllamaMenu(
                 label: "$(files) Múltiplos Arquivos",
                 description: "Selecionar arquivos específicos",
                 detail: "Análise comparativa de arquivos selecionados"
+            },
+            {
+                label: "$(git-commit) Analisar Commit Git",
+                description: "Analisar um commit específico",
+                detail: "Revisão de diff e mensagem do commit com IA"
+            },
+            {
+                label: "$(history) Commits Recentes",
+                description: "Analisar últimos commits",
+                detail: "Resumo e riscos do histórico recente"
             }
         );
     }
@@ -507,6 +588,12 @@ async function showOllamaMenu(
             break;
         case "$(files) Múltiplos Arquivos":
             await handleAnalyzeMultipleFiles(ollamaService);
+            break;
+        case "$(git-commit) Analisar Commit Git":
+            await handleAnalyzeCommit(ollamaService);
+            break;
+        case "$(history) Commits Recentes":
+            await handleAnalyzeRecentCommits(ollamaService);
             break;
         case "$(gear) Configurações":
             await showConfigurationMenu(ragService);
@@ -894,6 +981,124 @@ async function handleAnalyzeFile(ollamaService: OllamaService) {
             return;
         }
         vscode.window.showErrorMessage(`Erro na análise: ${error}`);
+    }
+}
+
+// Função para analisar um commit Git
+async function handleAnalyzeCommit(ollamaService: OllamaService) {
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!cwd) {
+        vscode.window.showErrorMessage('Nenhum workspace aberto');
+        return;
+    }
+    if (!(await isGitRepository(cwd))) {
+        vscode.window.showErrorMessage('O workspace atual não é um repositório Git.');
+        return;
+    }
+
+    const ref = await vscode.window.showInputBox({
+        prompt: 'Qual commit analisar?',
+        value: 'HEAD',
+        placeHolder: 'HEAD, HEAD~1, hash do commit, branch...'
+    });
+    if (ref === undefined) return;
+
+    const instruction = await vscode.window.showInputBox({
+        prompt: 'O que você quer analisar neste commit?',
+        value: 'Resuma as mudanças, aponte riscos e sugira melhorias.',
+        placeHolder: 'Ex: Encontrar bugs, revisar segurança, avaliar impacto'
+    });
+    if (!instruction) return;
+
+    try {
+        const commitText = await runWithCancelableProgress(
+            `Carregando commit ${ref || 'HEAD'}...`,
+            async () => getCommitShow(cwd, ref || 'HEAD')
+        );
+
+        const prompt = buildCommitAnalysisPrompt(commitText, instruction, 'commit');
+        const result = await runWithCancelableProgress(
+            'Analisando commit com Ollama...',
+            (signal) => ollamaService.chat([{ role: 'user', content: prompt }], { signal })
+        );
+
+        const doc = await vscode.workspace.openTextDocument({
+            content: `# Análise do Commit: ${ref || 'HEAD'}\n\n**Instrução:** ${instruction}\n\n---\n\n${result}`,
+            language: 'markdown'
+        });
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
+
+    } catch (error) {
+        if (isTimeoutError(error)) {
+            vscode.window.showWarningMessage('Tempo limite atingido.');
+            return;
+        }
+        if (isAbortError(error)) {
+            vscode.window.showWarningMessage('Operação cancelada.');
+            return;
+        }
+        vscode.window.showErrorMessage(`Erro na análise do commit: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+// Função para analisar commits recentes
+async function handleAnalyzeRecentCommits(ollamaService: OllamaService) {
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!cwd) {
+        vscode.window.showErrorMessage('Nenhum workspace aberto');
+        return;
+    }
+    if (!(await isGitRepository(cwd))) {
+        vscode.window.showErrorMessage('O workspace atual não é um repositório Git.');
+        return;
+    }
+
+    const countInput = await vscode.window.showInputBox({
+        prompt: 'Quantos commits recentes analisar?',
+        value: '10',
+        validateInput: (v) => {
+            const n = Number(v);
+            return Number.isInteger(n) && n >= 1 && n <= 50 ? undefined : 'Informe um número entre 1 e 50';
+        }
+    });
+    if (countInput === undefined) return;
+    const count = Math.min(Math.max(1, parseInt(countInput, 10) || 10), 50);
+
+    const instruction = await vscode.window.showInputBox({
+        prompt: 'O que você quer analisar nos commits recentes?',
+        value: 'Identifique padrões, commits de risco e sugira próximos passos.',
+        placeHolder: 'Ex: Resumir o trabalho recente, encontrar commits problemáticos'
+    });
+    if (!instruction) return;
+
+    try {
+        const logText = await runWithCancelableProgress(
+            `Carregando últimos ${count} commits...`,
+            async () => getRecentCommitsLog(cwd, count)
+        );
+
+        const prompt = buildCommitAnalysisPrompt(logText, instruction, 'histórico de commits recentes');
+        const result = await runWithCancelableProgress(
+            'Analisando commits com Ollama...',
+            (signal) => ollamaService.chat([{ role: 'user', content: prompt }], { signal })
+        );
+
+        const doc = await vscode.workspace.openTextDocument({
+            content: `# Análise dos Últimos ${count} Commits\n\n**Instrução:** ${instruction}\n\n---\n\n${result}`,
+            language: 'markdown'
+        });
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
+
+    } catch (error) {
+        if (isTimeoutError(error)) {
+            vscode.window.showWarningMessage('Tempo limite atingido.');
+            return;
+        }
+        if (isAbortError(error)) {
+            vscode.window.showWarningMessage('Operação cancelada.');
+            return;
+        }
+        vscode.window.showErrorMessage(`Erro na análise dos commits: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 

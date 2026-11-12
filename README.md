@@ -14,7 +14,25 @@ Uma extensão moderna do Visual Studio Code que integra modelos de IA locais via
 *   **🤖 Agente com Ferramentas Git**: O agente agora pode inspecionar o status do repositório (`gitstatus`), analisar diffs ativos (`gitdiff`) e gerar a árvore de diretórios (`filetree`).
 *   **🧠 RAG Concorrente & Multi-Linguagem**: Indexação com pool de trabalhadores concorrentes (4x mais rápida) e chunking semântico estruturado para **TypeScript/JavaScript**, **Python** e **Markdown**.
 *   **🔗 Contexto Inteligente**: Mencione arquivos com `@arquivo` ou fixe-os com **Pin (📌)** para dar contexto preciso à IA.
-*   **⚡ Slash Commands**: Use `/explain`, `/fix`, `/test`, `/refactor` para ações rápidas.
+*   **⚡ Slash Commands**: Use `/explain`, `/fix`, `/test`, `/refactor` para ações rápidas — com autocomplete ao digitar `/` (inclui templates customizados).
+*   **📄 Exportar Chat**: Botão ⤓ no chat ou comando `Ollama: Exportar Chat como HTML` gera um arquivo HTML standalone com a conversa renderizada (pronto para impressão/PDF).
+*   **🔍 Análise de Commits Git**: Comandos `Ollama: Analisar Commit Git` e `Ollama: Analisar Commits Recentes` para revisar diffs e histórico com IA.
+*   **🧩 Chunking Multilíngue**: RAG com chunking semântico para TypeScript/JavaScript, Python, Java, C#, C/C++, Go, Rust, Swift, Kotlin, CSS, HTML/XML, JSON e Markdown.
+*   **📊 Métricas de Uso**: Cada requisição ao Ollama registra modelo, tokens (prompt/gerados), duração e velocidade; visível na Status Bar e no comando `Ollama: Mostrar Metricas de Uso` (Output Channel).
+*   **🧩 Templates de Prompt Customizados**: Crie seus próprios slash commands via setting `ollama-code-diff.promptTemplates`, com variáveis `{input}`, `{selection}`, `{file}` e `{language}`.
+
+#### Templates de Prompt Customizados
+
+No `settings.json`, defina comandos personalizados:
+
+```json
+"ollama-code-diff.promptTemplates": {
+  "docs": "Documente detalhadamente a função a seguir. Arquivo: {file}\n\n{selection}\n\nInstrução: {input}",
+  "review": "Revise o código selecionado procurando bugs e problemas de performance.\n{selection}"
+}
+```
+
+Depois use `/docs gere exemplos de uso` ou `/review` no chat. O template é inserido como instrução antes do contexto resolvido (arquivos `@mencionados` e fixados continuam funcionando). Também é possível gerenciar os templates pelo botão 🧩 no chat, sem abrir o settings.json.
 
 ---
 
@@ -111,6 +129,9 @@ index 123..456 100644
 *   **`/find_file <file_name_or_pattern>`**: Localiza um arquivo no workspace.
     *   Exemplo: `/find_file "package.json"`
     *   Exemplo: `/find_file "*.ts"`
+*   **`gitlog`** (tool JSON): Mostra histórico recente de commits. args: `{ "count": 10 }`
+*   **`gitshow`** (tool JSON): Mostra commit específico com diff. args: `{ "ref": "HEAD", "path": "src/app.ts" }`
+*   **`gitblame`** (tool JSON): Mostra autoria por linha. args: `{ "filePath": "src/app.ts", "startLine": 1, "endLine": 50 }`
 *   **`/save_file`**: Salva o arquivo ativo no editor.
 *   **`/close_file`**: Fecha o arquivo ativo no editor.
 *   **`/get_selected_text`**: Obtém o texto atualmente selecionado no editor ativo.

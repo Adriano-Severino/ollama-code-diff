@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RAGService = exports.chunkMarkdown = exports.chunkPythonCode = exports.mapConcurrent = void 0;
+exports.RAGService = exports.chunkJson = exports.chunkMarkup = exports.chunkCss = exports.chunkBraceLanguage = exports.chunkMarkdown = exports.chunkPythonCode = exports.mapConcurrent = void 0;
 const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -48,6 +48,10 @@ const ragUtils_1 = require("../utils/ragUtils");
 Object.defineProperty(exports, "mapConcurrent", { enumerable: true, get: function () { return ragUtils_1.mapConcurrent; } });
 Object.defineProperty(exports, "chunkPythonCode", { enumerable: true, get: function () { return ragUtils_1.chunkPythonCode; } });
 Object.defineProperty(exports, "chunkMarkdown", { enumerable: true, get: function () { return ragUtils_1.chunkMarkdown; } });
+Object.defineProperty(exports, "chunkBraceLanguage", { enumerable: true, get: function () { return ragUtils_1.chunkBraceLanguage; } });
+Object.defineProperty(exports, "chunkCss", { enumerable: true, get: function () { return ragUtils_1.chunkCss; } });
+Object.defineProperty(exports, "chunkMarkup", { enumerable: true, get: function () { return ragUtils_1.chunkMarkup; } });
+Object.defineProperty(exports, "chunkJson", { enumerable: true, get: function () { return ragUtils_1.chunkJson; } });
 const IGNORED_DIRECTORIES = new Set([
     'node_modules',
     '.git',
@@ -363,7 +367,7 @@ class RAGService {
         const filePath = uri.fsPath;
         if (this.isIgnoredFilenameOrExtension(filePath))
             return false;
-        const extOk = /\.(ts|tsx|js|jsx|py|java|cs|cpp|c|h|go|rs|md|json|html|css)$/i.test(filePath);
+        const extOk = /\.(ts|tsx|js|jsx|py|java|cs|cpp|cc|cxx|c|h|hpp|go|rs|swift|kt|kts|scala|php|rb|md|markdown|json|html|htm|css|scss|sass|less|xml|svg|vue)$/i.test(filePath);
         if (!extOk)
             return false;
         const folder = vscode.workspace.getWorkspaceFolder(uri);
@@ -384,6 +388,18 @@ class RAGService {
         }
         if (ext === '.md' || ext === '.markdown') {
             return (0, ragUtils_1.chunkMarkdown)(text);
+        }
+        if (['.java', '.cs', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.go', '.rs', '.swift', '.kt', '.kts', '.scala', '.php', '.rb'].includes(ext)) {
+            return (0, ragUtils_1.chunkBraceLanguage)(text);
+        }
+        if (['.css', '.scss', '.sass', '.less'].includes(ext)) {
+            return (0, ragUtils_1.chunkCss)(text);
+        }
+        if (['.html', '.htm', '.xml', '.svg', '.vue'].includes(ext)) {
+            return (0, ragUtils_1.chunkMarkup)(text);
+        }
+        if (ext === '.json') {
+            return (0, ragUtils_1.chunkJson)(text);
         }
         // Multi-language structural heuristic
         return this.heuristicChunking(text);
@@ -443,7 +459,7 @@ class RAGService {
     }
     isStructuralLine(line) {
         const trimmed = line.trim();
-        return /^(export\s+)?(class|interface|function|const|let|var|def|public|private|protected|async|fn|struct|impl|type)\s+\w+/.test(trimmed) ||
+        return /^(export\s+)?(class|interface|function|const|let|var|def|public|private|protected|async|fn|func|struct|impl|trait|enum|record|namespace|package|module|mod|type|template|using|import)\s+\w+/.test(trimmed) ||
             (trimmed.includes('(') && trimmed.includes(')') && trimmed.endsWith('{'));
     }
     async search(query, limit = 5) {

@@ -29,7 +29,12 @@ suite('Extension Integration', () => {
       'ollama-code-diff.lspQuickFix',
       'ollama-code-diff.fixDiagnostic',
       'ollama-code-diff.indexCodebase',
-      'ollama-code-diff.semanticSearch'
+      'ollama-code-diff.semanticSearch',
+      'ollama-code-diff.showUsageMetrics',
+      'ollama-code-diff.exportChat',
+      'ollama-code-diff.analyzeCommit',
+      'ollama-code-diff.analyzeRecentCommits',
+      'ollama-code-diff.showConfigurationMenu'
     ];
 
     for (const command of expected) {

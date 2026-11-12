@@ -35,6 +35,10 @@ export class Logger {
         this.write('ERROR', full);
     }
 
+    public static show() {
+        this.channel?.show();
+    }
+
     public static debug(message: string) {
         if (!this.verbose) return;
         this.write('DEBUG', message);
