@@ -2271,6 +2271,7 @@ ${normalizedFileText}
         <span>Histórico de Chats</span>
         <button id="close-history">✖</button>
       </div>
+      <input id="history-search" type="text" placeholder="Buscar chats..." />
       <div id="history-list" class="history-list"></div>
     </div>
 

@@ -24,6 +24,7 @@ const templatesButton = document.getElementById('templates-button');
 const historyOverlay = document.getElementById('history-overlay');
 const closeHistoryButton = document.getElementById('close-history');
 const historyList = document.getElementById('history-list');
+const historySearchInput = document.getElementById('history-search');
 const templatesOverlay = document.getElementById('templates-overlay');
 const closeTemplatesButton = document.getElementById('close-templates');
 const templatesList = document.getElementById('templates-list');
@@ -97,6 +98,12 @@ if (templateSaveButton) {
     vscode.postMessage({ command: 'saveTemplate', name, template });
     templateNameInput.value = '';
     templateBodyInput.value = '';
+  });
+}
+
+if (historySearchInput) {
+  historySearchInput.addEventListener('input', () => {
+    renderHistoryList(historySessions, historySearchInput.value);
   });
 }
 
@@ -737,9 +744,29 @@ function renderPinnedFiles(files) {
   });
 }
 
-function renderHistoryList(sessions) {
+let historySessions = [];
+
+function sessionMatchesQuery(session, query) {
+  const q = query.toLowerCase();
+  if ((session.title || '').toLowerCase().includes(q)) return true;
+  return (session.messages || []).some(m => (m.content || '').toLowerCase().includes(q));
+}
+
+function renderHistoryList(sessions, query = '') {
   historyList.innerHTML = '';
-  sessions.forEach(session => {
+  const filtered = query.trim()
+    ? sessions.filter(s => sessionMatchesQuery(s, query.trim()))
+    : sessions;
+
+  if (filtered.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'history-item';
+    empty.innerHTML = '<span class="title" style="opacity:0.6">Nenhum chat encontrado.</span>';
+    historyList.appendChild(empty);
+    return;
+  }
+
+  filtered.forEach(session => {
     const div = document.createElement('div');
     div.className = 'history-item';
 
@@ -887,7 +914,8 @@ window.addEventListener('message', event => {
       break;
 
     case 'historyList':
-      renderHistoryList(message.sessions);
+      historySessions = message.sessions || [];
+      renderHistoryList(historySessions, historySearchInput ? historySearchInput.value : '');
       break;
 
     case 'templatesList':

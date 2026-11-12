@@ -441,6 +441,16 @@ select:focus-visible {
   padding: 5px;
 }
 
+#history-search {
+  margin: 6px 10px 0;
+  padding: 5px 8px;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-s);
+  font-size: 0.85em;
+}
+
 .history-item {
   padding: 8px;
   margin-bottom: 4px;
