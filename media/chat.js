@@ -25,6 +25,17 @@ const historyOverlay = document.getElementById('history-overlay');
 const closeHistoryButton = document.getElementById('close-history');
 const historyList = document.getElementById('history-list');
 const historySearchInput = document.getElementById('history-search');
+const historyCompareBar = document.getElementById('history-compare-bar');
+const compareSessionA = document.getElementById('compare-session-a');
+const compareSessionB = document.getElementById('compare-session-b');
+const runCompareButton = document.getElementById('run-compare');
+const cancelCompareButton = document.getElementById('cancel-compare');
+const toggleCompareButton = document.getElementById('toggle-compare');
+const diffOverlay = document.getElementById('diff-overlay');
+const diffTitle = document.getElementById('diff-title');
+const diffStats = document.getElementById('diff-stats');
+const diffContent = document.getElementById('diff-content');
+const closeDiffButton = document.getElementById('close-diff');
 const templatesOverlay = document.getElementById('templates-overlay');
 const closeTemplatesButton = document.getElementById('close-templates');
 const templatesList = document.getElementById('templates-list');
@@ -104,6 +115,66 @@ if (templateSaveButton) {
 if (historySearchInput) {
   historySearchInput.addEventListener('input', () => {
     renderHistoryList(historySessions, historySearchInput.value);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function populateCompareSelects() {
+  [compareSessionA, compareSessionB].forEach(select => {
+    select.innerHTML = '';
+    historySessions.forEach(session => {
+      const option = document.createElement('option');
+      option.value = session.id;
+      option.textContent = session.title || 'Sem título';
+      select.appendChild(option);
+    });
+  });
+  if (historySessions.length > 1 && compareSessionB.options.length > 1) {
+    compareSessionB.selectedIndex = 1;
+  }
+}
+
+function renderSessionDiff(message) {
+  diffTitle.textContent = `${message.titleA || 'Sessão A'}  ⇄  ${message.titleB || 'Sessão B'}`;
+  diffStats.innerHTML = `<span class="diff-added">+${message.added} linhas</span> <span class="diff-removed">−${message.removed} linhas</span>`;
+  diffContent.innerHTML = (message.lines || [])
+    .map(l => `<div class="diff-line diff-${l.type}">${l.type === 'add' ? '+' : l.type === 'remove' ? '−' : ' '} ${escapeHtml(l.content)}</div>`)
+    .join('');
+  diffOverlay.classList.remove('hidden');
+  historyOverlay.classList.add('hidden');
+}
+
+if (toggleCompareButton) {
+  toggleCompareButton.addEventListener('click', () => {
+    const show = historyCompareBar.classList.contains('hidden');
+    historyCompareBar.classList.toggle('hidden');
+    if (show) populateCompareSelects();
+  });
+}
+
+if (cancelCompareButton) {
+  cancelCompareButton.addEventListener('click', () => {
+    historyCompareBar.classList.add('hidden');
+  });
+}
+
+if (runCompareButton) {
+  runCompareButton.addEventListener('click', () => {
+    const idA = compareSessionA.value;
+    const idB = compareSessionB.value;
+    if (!idA || !idB || idA === idB) return;
+    vscode.postMessage({ command: 'compareSessions', sessionIdA: idA, sessionIdB: idB });
+  });
+}
+
+if (closeDiffButton) {
+  closeDiffButton.addEventListener('click', () => {
+    diffOverlay.classList.add('hidden');
   });
 }
 
@@ -916,6 +987,11 @@ window.addEventListener('message', event => {
     case 'historyList':
       historySessions = message.sessions || [];
       renderHistoryList(historySessions, historySearchInput ? historySearchInput.value : '');
+      if (!historyCompareBar.classList.contains('hidden')) populateCompareSelects();
+      break;
+
+    case 'sessionDiff':
+      renderSessionDiff(message);
       break;
 
     case 'templatesList':

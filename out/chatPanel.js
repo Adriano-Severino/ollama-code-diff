@@ -46,6 +46,7 @@ const terminalCommand_1 = require("./utils/terminalCommand");
 const promptTemplates_1 = require("./utils/promptTemplates");
 const usageMetrics_1 = require("./utils/usageMetrics");
 const chatExport_1 = require("./utils/chatExport");
+const sessionDiff_1 = require("./utils/sessionDiff");
 const git_1 = require("./utils/git");
 const unifiedDiff_1 = require("./utils/unifiedDiff");
 const BUILTIN_SLASH_COMMANDS = [
@@ -190,6 +191,9 @@ class ChatPanel {
                 case 'exportSession':
                     await this.exportSessionById(message.sessionId);
                     break;
+                case 'compareSessions':
+                    this.compareSessions(message.sessionIdA, message.sessionIdB);
+                    break;
                 case 'requestTemplates':
                     this.sendTemplatesList();
                     break;
@@ -274,6 +278,21 @@ class ChatPanel {
             ? session.messages
             : this.chatHistory.map(m => ({ role: m.role, content: m.content }));
         await this.exportMessagesToHtml(session?.title, messages, true);
+    }
+    compareSessions(sessionIdA, sessionIdB) {
+        const sessionA = this.historyManager.getSession(sessionIdA);
+        const sessionB = this.historyManager.getSession(sessionIdB);
+        if (!sessionA || !sessionB)
+            return;
+        const { lines, added, removed } = (0, sessionDiff_1.buildSessionDiff)(sessionA, sessionB);
+        this.view?.webview.postMessage({
+            type: 'sessionDiff',
+            titleA: sessionA.title || 'Sessão A',
+            titleB: sessionB.title || 'Sessão B',
+            added,
+            removed,
+            lines
+        });
     }
     async exportSessionById(sessionId) {
         const session = this.historyManager.getSession(sessionId);
@@ -1968,10 +1987,26 @@ ${normalizedFileText}
     <div id="history-overlay" class="history-overlay hidden">
       <div class="history-header">
         <span>Histórico de Chats</span>
+        <button id="toggle-compare" title="Comparar sessões">⇄</button>
         <button id="close-history">✖</button>
       </div>
       <input id="history-search" type="text" placeholder="Buscar chats..." />
+      <div id="history-compare-bar" class="history-compare-bar hidden">
+        <select id="compare-session-a" title="Sessão A"></select>
+        <span class="compare-vs">vs</span>
+        <select id="compare-session-b" title="Sessão B"></select>
+        <button id="run-compare" title="Comparar">⇄</button>
+        <button id="cancel-compare" title="Cancelar">✖</button>
+      </div>
       <div id="history-list" class="history-list"></div>
+    </div>
+    <div id="diff-overlay" class="history-overlay hidden">
+      <div class="history-header">
+        <span id="diff-title">Comparação de sessões</span>
+        <button id="close-diff">✖</button>
+      </div>
+      <div id="diff-stats" class="diff-stats"></div>
+      <div id="diff-content" class="diff-content"></div>
     </div>
 
     <div id="templates-overlay" class="history-overlay hidden">

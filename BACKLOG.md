@@ -8,7 +8,6 @@ _(nenhuma)_
 
 ## Próximos
 
-- [ ] **Diff visual entre sessões** — comparar duas sessões de chat lado a lado.
 - [ ] **Notificações de conclusão** — som/notificação quando uma geração longa terminar com o painel oculto.
 
 ## Concluídos
@@ -29,3 +28,4 @@ _(nenhuma)_
 - [x] **Exportar sessão do histórico** — cada item do overlay de histórico ganhou botão ⤓ que exporta aquela sessão como HTML (mesmo fluxo da sessão atual).
 - [x] **Exportação durante geração** — `inProgressResponse` acompanha o stream (chat/plan); exportar no meio de uma resposta inclui o texto parcial marcado como "geração em andamento".
 - [x] **Busca no histórico de chats** — campo de busca no overlay de histórico filtra sessões por título ou conteúdo das mensagens (case-insensitive, em tempo real).
+- [x] **Diff visual entre sessões** — botão ⇄ no histórico abre seletor de duas sessões; overlay mostra diff linha a linha (verde/vermelho) calculado com a lib `diff`, com contagem de linhas adicionadas/removidas.

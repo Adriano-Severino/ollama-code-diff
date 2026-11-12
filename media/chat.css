@@ -451,6 +451,76 @@ select:focus-visible {
   font-size: 0.85em;
 }
 
+.history-compare-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 10px 0;
+  padding: 6px;
+  background: var(--vscode-sideBar-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-s);
+}
+
+.history-compare-bar select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-s);
+  font-size: 0.8em;
+}
+
+.history-compare-bar .compare-vs {
+  opacity: 0.6;
+  font-size: 0.8em;
+}
+
+.history-compare-bar button {
+  padding: 4px 8px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+#diff-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-sideBar-background);
+  z-index: 20;
+}
+
+.diff-stats {
+  padding: 6px 12px;
+  font-size: 0.85em;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.diff-added { color: #4ec9b0; }
+.diff-removed { color: #f48771; margin-left: 8px; }
+
+.diff-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.8em;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-line { padding: 1px 6px; border-radius: 3px; }
+.diff-line.diff-add { background: rgba(78, 201, 176, 0.12); color: #4ec9b0; }
+.diff-line.diff-remove { background: rgba(244, 135, 113, 0.12); color: #f48771; }
+.diff-line.diff-context { opacity: 0.85; }
+
 .history-item {
   padding: 8px;
   margin-bottom: 4px;

@@ -265,6 +265,7 @@
     "test": "npm run test:unit && npm run test:integration"
   },
   "devDependencies": {
+    "@types/diff": "^7.0.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.x",
     "@types/vscode": "^1.85.0",
@@ -275,6 +276,7 @@
   "dependencies": {
     "@types/uuid": "^10.0.0",
     "cross-fetch": "^4.0.0",
+    "diff": "^5.2.2",
     "ignore": "^7.0.5",
     "marked": "^17.0.1",
     "ollama": "^0.5.0",

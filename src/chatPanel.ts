@@ -14,6 +14,7 @@ import { formatTerminalCommandForContext } from './utils/terminalCommand';
 import { findPromptTemplate, normalizeTemplateName, renderPromptTemplate } from './utils/promptTemplates';
 import { OllamaUsageStats, RequestUsage, UsageTracker, formatRequestUsage, toRequestUsage } from './utils/usageMetrics';
 import { ExportableMessage, buildChatHtmlExport } from './utils/chatExport';
+import { buildSessionDiff } from './utils/sessionDiff';
 import { runGit, sanitizeGitRef, truncateGitText, getRecentCommitsLog, getCommitShow } from './utils/git';
 import { parseUnifiedDiff, sanitizeUnifiedDiff } from './utils/unifiedDiff';
 
@@ -201,6 +202,10 @@ export class ChatPanel implements vscode.WebviewViewProvider {
           await this.exportSessionById(message.sessionId);
           break;
 
+        case 'compareSessions':
+          this.compareSessions(message.sessionIdA, message.sessionIdB);
+          break;
+
         case 'requestTemplates':
           this.sendTemplatesList();
           break;
@@ -301,6 +306,22 @@ export class ChatPanel implements vscode.WebviewViewProvider {
       : this.chatHistory.map(m => ({ role: m.role, content: m.content }));
 
     await this.exportMessagesToHtml(session?.title, messages, true);
+  }
+
+  public compareSessions(sessionIdA: string, sessionIdB: string): void {
+    const sessionA = this.historyManager.getSession(sessionIdA);
+    const sessionB = this.historyManager.getSession(sessionIdB);
+    if (!sessionA || !sessionB) return;
+
+    const { lines, added, removed } = buildSessionDiff(sessionA, sessionB);
+    this.view?.webview.postMessage({
+      type: 'sessionDiff',
+      titleA: sessionA.title || 'Sessão A',
+      titleB: sessionB.title || 'Sessão B',
+      added,
+      removed,
+      lines
+    });
   }
 
   public async exportSessionById(sessionId: string): Promise<void> {
@@ -2269,10 +2290,26 @@ ${normalizedFileText}
     <div id="history-overlay" class="history-overlay hidden">
       <div class="history-header">
         <span>Histórico de Chats</span>
+        <button id="toggle-compare" title="Comparar sessões">⇄</button>
         <button id="close-history">✖</button>
       </div>
       <input id="history-search" type="text" placeholder="Buscar chats..." />
+      <div id="history-compare-bar" class="history-compare-bar hidden">
+        <select id="compare-session-a" title="Sessão A"></select>
+        <span class="compare-vs">vs</span>
+        <select id="compare-session-b" title="Sessão B"></select>
+        <button id="run-compare" title="Comparar">⇄</button>
+        <button id="cancel-compare" title="Cancelar">✖</button>
+      </div>
       <div id="history-list" class="history-list"></div>
+    </div>
+    <div id="diff-overlay" class="history-overlay hidden">
+      <div class="history-header">
+        <span id="diff-title">Comparação de sessões</span>
+        <button id="close-diff">✖</button>
+      </div>
+      <div id="diff-stats" class="diff-stats"></div>
+      <div id="diff-content" class="diff-content"></div>
     </div>
 
     <div id="templates-overlay" class="history-overlay hidden">
